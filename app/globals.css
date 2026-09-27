@@ -70,8 +70,102 @@ input:focus-visible {
   outline-offset: 2px;
 }
 
+/* Weather effects — live, driven by the viewer's current local weather */
+
+@keyframes snow-fall {
+  0% {
+    transform: translateY(-10vh) translateX(0);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(110vh) translateX(24px);
+    opacity: 0.75;
+  }
+}
+
+.snowflake {
+  position: absolute;
+  top: -10px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  animation-name: snow-fall;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+@keyframes rain-fall {
+  0% {
+    transform: translateY(-10vh);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.55;
+  }
+  100% {
+    transform: translateY(110vh);
+    opacity: 0.25;
+  }
+}
+
+.raindrop {
+  position: absolute;
+  top: -20px;
+  width: 1px;
+  background: linear-gradient(
+    to bottom,
+    rgba(180, 210, 255, 0),
+    rgba(180, 210, 255, 0.65)
+  );
+  animation-name: rain-fall;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+@keyframes sun-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.05);
+  }
+}
+
+.sun-glow {
+  position: absolute;
+  top: -140px;
+  right: -140px;
+  width: 380px;
+  height: 380px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(232, 112, 58, 0.55),
+    rgba(232, 112, 58, 0) 70%
+  );
+  animation: sun-pulse 6s ease-in-out infinite;
+  filter: blur(2px);
+}
+
+.cloud-veil {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.05),
+    rgba(255, 255, 255, 0) 45%
+  );
+}
+
 @media (prefers-reduced-motion: reduce) {
-  body {
-    transition: none;
+  .snowflake,
+  .raindrop,
+  .sun-glow {
+    animation: none !important;
   }
 }
