@@ -6,13 +6,25 @@ export const metadata: Metadata = {
   description: "Personal site and project hub.",
 };
 
+type Season = "fall" | "winter" | "spring" | "summer";
+
+function getSeason(date: Date): Season {
+  const month = date.getMonth(); // 0 = January
+  if (month === 11 || month === 0 || month === 1) return "winter";
+  if (month >= 2 && month <= 4) return "spring";
+  if (month >= 5 && month <= 7) return "summer";
+  return "fall"; // Sep, Oct, Nov
+}
+
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const season = getSeason(new Date());
+
   return (
-    <html lang="en">
+    <html lang="en" data-season={season}>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
