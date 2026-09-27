@@ -1,0 +1,58 @@
+:root {
+  --navy: #0b1d33;
+  --line-blue: #13315c;
+  --line-blue-faint: rgba(19, 49, 92, 0.55);
+  --off-white: #edeff2;
+  --off-white-dim: #a9b4c4;
+  --amber: #e8a33d;
+  --amber-dim: #b97f2c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--navy);
+  color: var(--off-white);
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+}
+
+body {
+  min-height: 100vh;
+  background-image: linear-gradient(var(--line-blue-faint) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line-blue-faint) 1px, transparent 1px);
+  background-size: 32px 32px;
+  background-position: -1px -1px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .card {
+    animation: rise 0.5s ease-out;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+a {
+  color: var(--amber);
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
