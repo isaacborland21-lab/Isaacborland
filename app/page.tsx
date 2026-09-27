@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import WeatherEffects from "./WeatherEffects";
 
 const projects = [
   { name: "Gmail cleanup", status: "in progress" },
@@ -128,9 +129,12 @@ export default function HomePage() {
         display: "flex",
         justifyContent: "center",
         padding: "64px 24px",
+        position: "relative",
       }}
     >
-      <div style={{ maxWidth: 560, width: "100%" }}>
+      <WeatherEffects />
+
+      <div style={{ maxWidth: 560, width: "100%", position: "relative", zIndex: 1 }}>
         <div
           style={{
             display: "flex",
