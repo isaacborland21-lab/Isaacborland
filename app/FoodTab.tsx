@@ -112,6 +112,18 @@ function Pill({ label, on, onClick }: { label: string; on: boolean; onClick: () 
   );
 }
 
+function useIsWide(minWidth = 1024) {
+  const [wide, setWide] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia(`(min-width: ${minWidth}px)`);
+    const update = () => setWide(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, [minWidth]);
+  return wide;
+}
+
 // Ingredients for a plan slot: the linked recipe's if there is one, else the slot's own.
 function slotIngredients(meal: PlanMeal, recipes: Recipe[]): string[] {
   if (meal.recipeId) {
@@ -354,8 +366,9 @@ function MealPlan({
   onSaveRecipeFromSlot: (kind: MealKind, index: number) => Promise<boolean>;
 }) {
   const [view, setView] = useState<MealKind>("lunch");
-  const [editingDay, setEditingDay] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(null); // "lunch:Mon"
   const [showGroceries, setShowGroceries] = useState(false);
+  const wide = useIsWide();
 
   // Refresh week
   const [refreshOpen, setRefreshOpen] = useState(false);
@@ -366,7 +379,7 @@ function MealPlan({
   const [draft, setDraft] = useState<{ plan: MealPlanData; notes: string[] } | null>(null);
 
   const shown = draft ? draft.plan : plan;
-  const meals = shown[view];
+  const kindsShown: MealKind[] = wide ? ["lunch", "dinner"] : [view];
 
   async function runRefresh() {
     const ks = (["lunch", "dinner"] as const).filter((k) => kinds[k]);
@@ -391,7 +404,7 @@ function MealPlan({
         web = data.meals ?? [];
       }
       setDraft(buildRefreshedPlan(plan, ks, mode, recipes, web));
-      setEditingDay(null);
+      setEditing(null);
       setRefreshOpen(false);
     } catch (e) {
       setRefreshError((e as Error).message);
@@ -410,14 +423,14 @@ function MealPlan({
       </p>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "center", flexWrap: "wrap" }}>
-        {(["lunch", "dinner"] as const).map((v) => (
+        {!wide && (["lunch", "dinner"] as const).map((v) => (
           <Pill
             key={v}
             label={v === "lunch" ? "Lunch" : "Dinner"}
             on={v === view}
             onClick={() => {
               setView(v);
-              setEditingDay(null);
+              setEditing(null);
             }}
           />
         ))}
@@ -519,73 +532,82 @@ function MealPlan({
 
       {showGroceries && <GroceryPanel plan={shown} recipes={recipes} onClose={() => setShowGroceries(false)} />}
 
-      {meals.map((m, i) =>
-        editingDay === m.day && !draft ? (
-          <MealEditForm
-            key={m.day}
-            meal={m}
-            recipes={recipes}
-            saving={saving}
-            onCancel={() => setEditingDay(null)}
-            onSave={async (next) => {
-              const updated = { ...plan, [view]: plan[view].map((x) => (x.day === m.day ? next : x)) };
-              if (await onSavePlan(updated)) setEditingDay(null);
-            }}
-          />
-        ) : (
-          <div
-            key={m.day}
-            style={{ display: "flex", gap: 14, padding: "14px 0", borderTop: i === 0 ? "none" : "1px solid var(--surface-border)" }}
-          >
-            <span style={{ fontFamily: mono, fontSize: 12, color: "var(--accent)", width: 32, flexShrink: 0, paddingTop: 2 }}>{m.day}</span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "baseline" }}>
-                <span style={{ fontFamily: sans, fontSize: 15, fontWeight: 600 }}>
-                  {m.locked && <span title="Locked: refresh keeps this day">🔒 </span>}
-                  {m.name}
-                </span>
-                <span style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
-                  <span style={{ fontFamily: mono, fontSize: 10, color: batchColor[m.batch], textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                    {m.batch}
-                  </span>
-                  {editable && !draft && (
-                    <>
-                      <button
-                        style={{ ...linkBtn, color: m.locked ? "var(--accent)" : "var(--text-dim)" }}
-                        disabled={saving}
-                        onClick={() =>
-                          onSavePlan({ ...plan, [view]: plan[view].map((x, j) => (j === i ? { ...x, locked: !x.locked } : x)) })
-                        }
-                      >
-                        {m.locked ? "Unlock" : "Lock"}
-                      </button>
-                      <button style={linkBtn} onClick={() => setEditingDay(m.day)}>
-                        Edit
-                      </button>
-                    </>
-                  )}
-                </span>
-              </div>
-              {m.note && <p style={{ ...dimText, marginTop: 4 }}>{m.note}</p>}
-              {m.recipeId && recipes.some((r) => r.id === m.recipeId) && (
-                <p style={{ fontFamily: mono, fontSize: 11, color: "var(--text-dim)", margin: "4px 0 0 0" }}>↳ from your saved recipes</p>
-              )}
-              {m.source && !m.recipeId && (
-                <p style={{ fontFamily: mono, fontSize: 11, margin: "4px 0 0 0", display: "flex", gap: 12, flexWrap: "wrap" }}>
-                  <a href={m.source} target="_blank" rel="noopener noreferrer">
-                    View recipe ↗
-                  </a>
-                  {editable && !draft && (
-                    <button style={{ ...linkBtn, fontSize: 11 }} disabled={saving} onClick={() => onSaveRecipeFromSlot(view, i)}>
-                      + Save to my recipes
-                    </button>
-                  )}
-                </p>
-              )}
-            </div>
+      <div className={wide ? "meal-columns" : undefined}>
+        {kindsShown.map((kind) => (
+          <div key={kind}>
+            {wide && (
+              <p style={{ ...labelStyle, fontSize: 12, letterSpacing: "0.06em", marginBottom: 2 }}>{kind === "lunch" ? "Lunch" : "Dinner"}</p>
+            )}
+            {shown[kind].map((m, i) =>
+              editing === `${kind}:${m.day}` && !draft ? (
+                <MealEditForm
+                  key={m.day}
+                  meal={m}
+                  recipes={recipes}
+                  saving={saving}
+                  onCancel={() => setEditing(null)}
+                  onSave={async (next) => {
+                    const updated = { ...plan, [kind]: plan[kind].map((x) => (x.day === m.day ? next : x)) };
+                    if (await onSavePlan(updated)) setEditing(null);
+                  }}
+                />
+              ) : (
+                <div
+                  key={m.day}
+                  style={{ display: "flex", gap: 14, padding: "14px 0", borderTop: i === 0 ? "none" : "1px solid var(--surface-border)" }}
+                >
+                  <span style={{ fontFamily: mono, fontSize: 12, color: "var(--accent)", width: 32, flexShrink: 0, paddingTop: 2 }}>{m.day}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "baseline" }}>
+                      <span style={{ fontFamily: sans, fontSize: 15, fontWeight: 600 }}>
+                        {m.locked && <span title="Locked: refresh keeps this day">🔒 </span>}
+                        {m.name}
+                      </span>
+                      <span style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
+                        <span style={{ fontFamily: mono, fontSize: 10, color: batchColor[m.batch], textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                          {m.batch}
+                        </span>
+                        {editable && !draft && (
+                          <>
+                            <button
+                              style={{ ...linkBtn, color: m.locked ? "var(--accent)" : "var(--text-dim)" }}
+                              disabled={saving}
+                              onClick={() =>
+                                onSavePlan({ ...plan, [kind]: plan[kind].map((x, j) => (j === i ? { ...x, locked: !x.locked } : x)) })
+                              }
+                            >
+                              {m.locked ? "Unlock" : "Lock"}
+                            </button>
+                            <button style={linkBtn} onClick={() => setEditing(`${kind}:${m.day}`)}>
+                              Edit
+                            </button>
+                          </>
+                        )}
+                      </span>
+                    </div>
+                    {m.note && <p style={{ ...dimText, marginTop: 4 }}>{m.note}</p>}
+                    {m.recipeId && recipes.some((r) => r.id === m.recipeId) && (
+                      <p style={{ fontFamily: mono, fontSize: 11, color: "var(--text-dim)", margin: "4px 0 0 0" }}>↳ from your saved recipes</p>
+                    )}
+                    {m.source && !m.recipeId && (
+                      <p style={{ fontFamily: mono, fontSize: 11, margin: "4px 0 0 0", display: "flex", gap: 12, flexWrap: "wrap" }}>
+                        <a href={m.source} target="_blank" rel="noopener noreferrer">
+                          View recipe ↗
+                        </a>
+                        {editable && !draft && (
+                          <button style={{ ...linkBtn, fontSize: 11 }} disabled={saving} onClick={() => onSaveRecipeFromSlot(kind, i)}>
+                            + Save to my recipes
+                          </button>
+                        )}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )
+            )}
           </div>
-        )
-      )}
+        ))}
+      </div>
 
       {editable && !draft && (
         <button
@@ -593,7 +615,7 @@ function MealPlan({
           onClick={() => {
             if (window.confirm("Reset lunches and dinners back to the default plan? Your edits to the plan will be lost (recipes and to-dos stay).")) {
               onSavePlan(DEFAULT_PLAN);
-              setEditingDay(null);
+              setEditing(null);
             }
           }}
         >
@@ -966,7 +988,7 @@ export default function FoodTab({
   }
 
   return (
-    <div style={{ border: "1px solid var(--surface-border)", background: "var(--surface)", borderRadius: 6, padding: "24px" }}>
+    <div className="card">
       <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
         {(["Meal plan", "Recipes", "To-do"] as const).map((s) => (
           <Pill

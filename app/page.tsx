@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { UserButton, useUser } from "@clerk/nextjs";
 import WeatherEffects, { WeatherInfo } from "./WeatherEffects";
 import FoodTab, { FoodContent } from "./FoodTab";
+import AliveBackground from "./AliveBackground";
+import { DEFAULT_PLAN } from "./foodDefaults";
 
 const seasonLabels: Record<string, string> = {
   fall: "Fall theme",
@@ -101,15 +103,7 @@ const emptyFood: FoodContent = { recipes: [], todos: [] };
 
 function Card({ children, corner }: { children: React.ReactNode; corner?: React.ReactNode }) {
   return (
-    <div
-      style={{
-        position: "relative",
-        border: "1px solid var(--surface-border)",
-        background: "var(--surface)",
-        borderRadius: 6,
-        padding: "24px",
-      }}
-    >
+    <div className="card">
       {corner && <div style={{ position: "absolute", top: 16, right: 16 }}>{corner}</div>}
       {children}
     </div>
@@ -184,9 +178,9 @@ function HomeTab({
 
   return (
     <Card corner={editable && <button style={editButtonStyle} onClick={() => setEditing(true)}>Edit</button>}>
-      <h1 style={{ fontFamily: mono, fontWeight: 600, fontSize: 30, lineHeight: 1.3, margin: "0 0 12px 0" }}>
+      <h2 style={{ fontFamily: mono, fontWeight: 600, fontSize: 30, lineHeight: 1.25, margin: "0 0 12px 0", paddingRight: 48 }}>
         {data.headline}
-      </h1>
+      </h2>
       <p style={{ fontFamily: sans, fontSize: 15, lineHeight: 1.6, color: "var(--text-dim)", margin: 0 }}>
         {data.body}
       </p>
@@ -554,6 +548,117 @@ function AdminTab() {
   );
 }
 
+// ---------- Nav icons (inline so there's nothing extra to load) ----------
+
+function Icon({ name }: { name: Tab }) {
+  const common = {
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+  };
+  switch (name) {
+    case "Home":
+      return (
+        <svg {...common}>
+          <path d="M3 11.5 12 4l9 7.5" />
+          <path d="M5.5 10v9.5h13V10" />
+          <path d="M10 19.5v-5h4v5" />
+        </svg>
+      );
+    case "Projects":
+      return (
+        <svg {...common}>
+          <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" />
+          <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />
+          <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
+          <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
+        </svg>
+      );
+    case "Food":
+      return (
+        <svg {...common}>
+          <path d="M7 3v8a2 2 0 0 0 2 2v8" />
+          <path d="M5 3v5.5M9 3v5.5" />
+          <path d="M16.5 21V3c-2.2 1.3-3.5 4-3.5 7.5 0 1.9 1 3 3.5 3" />
+        </svg>
+      );
+    case "About":
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="8" r="4" />
+          <path d="M4.5 20.5c1.4-3.6 4.2-5.5 7.5-5.5s6.1 1.9 7.5 5.5" />
+        </svg>
+      );
+    case "Contact":
+      return (
+        <svg {...common}>
+          <rect x="3" y="5.5" width="18" height="13" rx="2" />
+          <path d="m3.5 7 8.5 6 8.5-6" />
+        </svg>
+      );
+    case "Admin":
+      return (
+        <svg {...common}>
+          <path d="M12 3 4.5 6v5.5c0 4.5 3.2 8.2 7.5 9.5 4.3-1.3 7.5-5 7.5-9.5V6L12 3Z" />
+          <path d="m9 12 2 2 4-4" />
+        </svg>
+      );
+  }
+}
+
+// ---------- Home: today's meals at a glance ----------
+
+const DAY_KEYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function TodayCard({ food, onOpenFood }: { food: FoodContent; onOpenFood: () => void }) {
+  const [today, setToday] = useState<Date | null>(null);
+  useEffect(() => setToday(new Date()), []);
+  if (!today) return <Card>{null}</Card>;
+
+  const plan = food.plan ?? DEFAULT_PLAN;
+  const key = DAY_KEYS[today.getDay()];
+  const lunch = plan.lunch.find((m) => m.day === key);
+  const dinner = plan.dinner.find((m) => m.day === key);
+  const prepDay = key === "Sun" ? "Mon–Wed" : key === "Wed" ? "Thu–Sun" : null;
+  const openTodos = food.todos.filter((t) => !t.done).length;
+
+  return (
+    <Card>
+      <p style={{ fontFamily: mono, fontSize: 12, color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px 0" }}>
+        Today · {today.toLocaleDateString(undefined, { weekday: "long" })}
+      </p>
+      {prepDay && (
+        <p style={{ fontFamily: sans, fontSize: 13, color: "#8fbf7f", margin: "0 0 8px 0" }}>Prep day: cook for {prepDay}.</p>
+      )}
+      {[
+        ["Lunch", lunch],
+        ["Dinner", dinner],
+      ].map(([label, meal]) => (
+        <div key={label as string} className="today-meal">
+          <p style={{ fontFamily: mono, fontSize: 11, color: "var(--text-dim)", textTransform: "uppercase", margin: "0 0 3px 0" }}>
+            {label as string}
+          </p>
+          <p style={{ fontFamily: sans, fontSize: 16, fontWeight: 600, margin: 0 }}>
+            {meal && typeof meal === "object" ? meal.name : "Nothing planned"}
+          </p>
+        </div>
+      ))}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 14, gap: 12, flexWrap: "wrap" }}>
+        <span style={{ fontFamily: sans, fontSize: 13, color: "var(--text-dim)" }}>
+          {openTodos > 0 ? `${openTodos} food to-do${openTodos === 1 ? "" : "s"} open` : "To-do list is clear"}
+        </span>
+        <button style={{ ...editButtonStyle, fontSize: 13 }} onClick={onOpenFood}>
+          Open Food →
+        </button>
+      </div>
+    </Card>
+  );
+}
+
 function weatherText(w: WeatherInfo | null): string {
   if (!w) return "";
   const parts: string[] = [];
@@ -567,6 +672,13 @@ function weatherText(w: WeatherInfo | null): string {
   return text;
 }
 
+function greetingFor(hour: number) {
+  if (hour < 5) return "Up late";
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
+}
+
 export default function HomePage() {
   const { user } = useUser();
   const [active, setActive] = useState<Tab>("Home");
@@ -574,10 +686,14 @@ export default function HomePage() {
   const [weather, setWeather] = useState<WeatherInfo | null>(null);
   const [content, setContent] = useState<TabContentData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [now, setNow] = useState<Date | null>(null);
 
   useEffect(() => {
     const s = document.documentElement.getAttribute("data-season");
     if (s) setSeason(s);
+    setNow(new Date());
+    const t = window.setInterval(() => setNow(new Date()), 20_000);
+    return () => window.clearInterval(t);
   }, []);
 
   useEffect(() => {
@@ -596,6 +712,7 @@ export default function HomePage() {
 
   const tabs: Tab[] = isOwner ? [...baseTabs, "Admin"] : [...baseTabs];
   const usesContent = active !== "Admin";
+  const food: FoodContent = { ...emptyFood, ...(content?.food ?? {}) };
 
   async function saveTab<K extends keyof TabContentData>(tab: K, next: TabContentData[K]) {
     const res = await fetch(`/api/content/${tab}`, {
@@ -610,153 +727,110 @@ export default function HomePage() {
     setContent((prev) => (prev ? { ...prev, [tab]: next } : prev));
   }
 
+  const firstName = user?.firstName?.trim();
+
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        justifyContent: "center",
-        padding: "64px 24px",
-        position: "relative",
-      }}
-    >
+    <>
+      <AliveBackground />
       <WeatherEffects onWeatherChange={setWeather} />
 
-      <div style={{ maxWidth: 560, width: "100%", position: "relative", zIndex: 1 }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "baseline",
-            marginBottom: 28,
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <UserButton
-              appearance={{
-                variables: {
-                  colorPrimary: "#e8703a",
-                  colorBackground: "var(--surface)",
-                  colorText: "var(--text)",
-                  colorTextSecondary: "var(--text-dim)",
-                  colorInputBackground: "var(--bg)",
-                  colorInputText: "var(--text)",
-                  fontFamily: sans,
-                },
-                elements: {
-                  avatarBox: { width: 26, height: 26 },
-                  userButtonPopoverCard: {
-                    border: "1px solid var(--surface-border)",
-                    boxShadow: "none",
+      <main className="shell">
+        <header className="topbar">
+          <div style={{ minWidth: 0 }}>
+            <div className="brand">
+              <UserButton
+                appearance={{
+                  variables: {
+                    colorPrimary: "#e8703a",
+                    colorBackground: "var(--surface)",
+                    colorText: "var(--text)",
+                    colorTextSecondary: "var(--text-dim)",
+                    colorInputBackground: "var(--bg)",
+                    colorInputText: "var(--text)",
+                    fontFamily: sans,
                   },
-                },
-              }}
-            />
-            <p
-              style={{
-                fontFamily: mono,
-                fontSize: 13,
-                letterSpacing: "0.02em",
-                color: "var(--text-dim)",
-                margin: 0,
-              }}
-            >
-              isaacborland.com
-            </p>
+                  elements: {
+                    avatarBox: { width: 30, height: 30 },
+                    userButtonPopoverCard: {
+                      border: "1px solid var(--surface-border)",
+                      boxShadow: "none",
+                    },
+                  },
+                }}
+              />
+              <p className="site-name">isaacborland.com</p>
+            </div>
+            <h1 className="greeting">
+              {now ? greetingFor(now.getHours()) : "Welcome"}
+              {firstName ? (
+                <>
+                  , <span className="accent">{firstName}</span>.
+                </>
+              ) : (
+                "."
+              )}
+            </h1>
+            <p className="subline">Your projects, your plans, your place.</p>
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
-            <p
-              style={{
-                fontFamily: mono,
-                fontSize: 12,
-                color: "var(--accent)",
-                margin: 0,
+          <div className="status">
+            <div className="clock">{now ? now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : " "}</div>
+            {now && <span className="status-line">{now.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}</span>}
+            {weather && <span className="status-line">{weatherText(weather)}</span>}
+            {seasonLabels[season] && <span className="chip">{seasonLabels[season]}</span>}
+          </div>
+        </header>
+
+        <nav className="tabs" aria-label="Sections">
+          {tabs.map((tab) => (
+            <button
+              key={tab}
+              className={tab === active ? "tab active" : "tab"}
+              aria-current={tab === active ? "page" : undefined}
+              onClick={() => {
+                setActive(tab);
+                window.scrollTo({ top: 0, behavior: "smooth" });
               }}
             >
-              {seasonLabels[season] ?? ""}
-            </p>
-            {weather && (
-              <p
-                style={{
-                  fontFamily: mono,
-                  fontSize: 11,
-                  color: "var(--text-dim)",
-                  margin: 0,
-                }}
-              >
-                {weatherText(weather)}
-              </p>
-            )}
-          </div>
-        </div>
-
-        <nav
-          style={{
-            display: "flex",
-            gap: 4,
-            marginBottom: 20,
-            borderBottom: "1px solid var(--surface-border)",
-            overflowX: "auto",
-          }}
-        >
-          {tabs.map((tab) => {
-            const isActive = tab === active;
-            return (
-              <button
-                key={tab}
-                onClick={() => setActive(tab)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  padding: "10px 14px",
-                  fontFamily: sans,
-                  fontSize: 14,
-                  whiteSpace: "nowrap",
-                  color: isActive ? "var(--accent)" : "var(--text-dim)",
-                  borderBottom: isActive ? "2px solid var(--accent)" : "2px solid transparent",
-                  marginBottom: -1,
-                }}
-              >
-                {tab}
-              </button>
-            );
-          })}
+              <Icon name={tab} />
+              <span>{tab}</span>
+            </button>
+          ))}
         </nav>
 
-        {usesContent && !content && !loadError && (
-          <Card>
-            <p style={{ fontFamily: sans, fontSize: 14, color: "var(--text-dim)", margin: 0 }}>Loading…</p>
-          </Card>
-        )}
-        {usesContent && loadError && (
-          <Card>
-            <p style={errorStyle}>{loadError}</p>
-          </Card>
-        )}
+        <div className="tab-content" key={active}>
+          {usesContent && !content && !loadError && (
+            <Card>
+              <p style={{ fontFamily: sans, fontSize: 14, color: "var(--text-dim)", margin: 0 }}>Loading…</p>
+            </Card>
+          )}
+          {usesContent && loadError && (
+            <Card>
+              <p style={errorStyle}>{loadError}</p>
+            </Card>
+          )}
 
-        {content && active === "Home" && (
-          <HomeTab data={content.home} editable={canEdit("home")} onSave={(d) => saveTab("home", d)} />
-        )}
-        {content && active === "Projects" && (
-          <ProjectsTab data={content.projects} editable={canEdit("projects")} onSave={(d) => saveTab("projects", d)} />
-        )}
-        {content && active === "Food" && (
-          <FoodTab
-            data={{ ...emptyFood, ...(content.food ?? {}) }}
-            editable={canEdit("food")}
-            onSave={(d) => saveTab("food", d)}
-          />
-        )}
-        {content && active === "About" && (
-          <AboutTab data={content.about} editable={canEdit("about")} onSave={(d) => saveTab("about", d)} />
-        )}
-        {content && active === "Contact" && (
-          <ContactTab data={content.contact} editable={canEdit("contact")} onSave={(d) => saveTab("contact", d)} />
-        )}
-        {active === "Admin" && isOwner && <AdminTab />}
-      </div>
-    </main>
+          {content && active === "Home" && (
+            <div className="home-grid">
+              <HomeTab data={content.home} editable={canEdit("home")} onSave={(d) => saveTab("home", d)} />
+              <TodayCard food={food} onOpenFood={() => setActive("Food")} />
+            </div>
+          )}
+          {content && active === "Projects" && (
+            <ProjectsTab data={content.projects} editable={canEdit("projects")} onSave={(d) => saveTab("projects", d)} />
+          )}
+          {content && active === "Food" && (
+            <FoodTab data={food} editable={canEdit("food")} onSave={(d) => saveTab("food", d)} />
+          )}
+          {content && active === "About" && (
+            <AboutTab data={content.about} editable={canEdit("about")} onSave={(d) => saveTab("about", d)} />
+          )}
+          {content && active === "Contact" && (
+            <ContactTab data={content.contact} editable={canEdit("contact")} onSave={(d) => saveTab("contact", d)} />
+          )}
+          {active === "Admin" && isOwner && <AdminTab />}
+        </div>
+      </main>
+    </>
   );
 }

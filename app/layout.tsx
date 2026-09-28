@@ -1,10 +1,19 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Isaac Borland",
   description: "Personal site and project hub.",
+};
+
+// viewport-fit=cover lets the mobile bottom bar sit above the iPhone home
+// indicator via env(safe-area-inset-bottom).
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#1d130c",
 };
 
 type Season = "fall" | "winter" | "spring" | "summer";
@@ -35,7 +44,7 @@ export default function RootLayout({
             crossOrigin="anonymous"
           />
           <link
-            href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap"
+            href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
             rel="stylesheet"
           />
         </head>

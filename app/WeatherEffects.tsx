@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type WeatherKind = "clear" | "cloudy" | "rain" | "snow" | "thunder" | "fog" | null;
 
@@ -84,6 +84,28 @@ export default function WeatherEffects({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Random positions are generated once per weather kind. Without this, every
+  // parent re-render (the header clock ticks every 20s) would re-roll them and
+  // make every snowflake/raindrop jump.
+  const flakes = useMemo(
+    () =>
+      Array.from({ length: 50 }, () => {
+        const size = 3 + Math.random() * 4;
+        return { left: Math.random() * 100, size, duration: 8 + Math.random() * 8, delay: Math.random() * 8 };
+      }),
+    [kind]
+  );
+  const drops = useMemo(
+    () =>
+      Array.from({ length: 70 }, () => ({
+        left: Math.random() * 100,
+        height: 14 + Math.random() * 18,
+        duration: 0.5 + Math.random() * 0.5,
+        delay: Math.random() * 2,
+      })),
+    [kind]
+  );
+
   if (!kind) return null;
 
   return (
@@ -98,33 +120,30 @@ export default function WeatherEffects({
       }}
     >
       {kind === "snow" &&
-        Array.from({ length: 50 }).map((_, i) => {
-          const size = 3 + Math.random() * 4;
-          return (
-            <span
-              key={i}
-              className="snowflake"
-              style={{
-                left: `${Math.random() * 100}%`,
-                width: size,
-                height: size,
-                animationDuration: `${8 + Math.random() * 8}s`,
-                animationDelay: `${Math.random() * 8}s`,
-              }}
-            />
-          );
-        })}
+        flakes.map((f, i) => (
+          <span
+            key={i}
+            className="snowflake"
+            style={{
+              left: `${f.left}%`,
+              width: f.size,
+              height: f.size,
+              animationDuration: `${f.duration}s`,
+              animationDelay: `${f.delay}s`,
+            }}
+          />
+        ))}
 
       {kind === "rain" &&
-        Array.from({ length: 70 }).map((_, i) => (
+        drops.map((d, i) => (
           <span
             key={i}
             className="raindrop"
             style={{
-              left: `${Math.random() * 100}%`,
-              height: 14 + Math.random() * 18,
-              animationDuration: `${0.5 + Math.random() * 0.5}s`,
-              animationDelay: `${Math.random() * 2}s`,
+              left: `${d.left}%`,
+              height: d.height,
+              animationDuration: `${d.duration}s`,
+              animationDelay: `${d.delay}s`,
             }}
           />
         ))}
