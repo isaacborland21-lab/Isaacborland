@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { UserButton, useUser } from "@clerk/nextjs";
 import WeatherEffects, { WeatherInfo } from "./WeatherEffects";
-import FoodTab from "./FoodTab";
+import FoodTab, { FoodContent } from "./FoodTab";
 
 const seasonLabels: Record<string, string> = {
   fall: "Fall theme",
@@ -77,13 +77,16 @@ type ContactContent = { body: string; email: string };
 type TabContentData = {
   home: HomeContent;
   projects: ProjectRow[];
+  food: FoodContent;
   about: AboutContent;
   contact: ContactContent;
 };
 
+type EditableTab = "home" | "projects" | "food" | "about" | "contact";
+
 type PublicMetadata = {
   owner?: boolean;
-  tabAdmin?: Partial<Record<"home" | "projects" | "about" | "contact", boolean>>;
+  tabAdmin?: Partial<Record<EditableTab, boolean>>;
 };
 
 type AdminUser = {
@@ -91,8 +94,10 @@ type AdminUser = {
   email: string;
   firstName: string | null;
   owner: boolean;
-  tabAdmin: Partial<Record<"home" | "projects" | "about" | "contact", boolean>>;
+  tabAdmin: Partial<Record<EditableTab, boolean>>;
 };
+
+const emptyFood: FoodContent = { recipes: [], todos: [] };
 
 function Card({ children, corner }: { children: React.ReactNode; corner?: React.ReactNode }) {
   return (
@@ -444,7 +449,7 @@ function ContactTab({
   );
 }
 
-const editableTabKeys = ["home", "projects", "about", "contact"] as const;
+const editableTabKeys = ["home", "projects", "food", "about", "contact"] as const;
 
 function AdminTab() {
   const [users, setUsers] = useState<AdminUser[] | null>(null);
@@ -587,10 +592,10 @@ export default function HomePage() {
 
   const metadata = (user?.publicMetadata ?? {}) as PublicMetadata;
   const isOwner = metadata.owner === true;
-  const canEdit = (tab: keyof NonNullable<PublicMetadata["tabAdmin"]>) => isOwner || metadata.tabAdmin?.[tab] === true;
+  const canEdit = (tab: EditableTab) => isOwner || metadata.tabAdmin?.[tab] === true;
 
   const tabs: Tab[] = isOwner ? [...baseTabs, "Admin"] : [...baseTabs];
-  const usesContent = active !== "Food" && active !== "Admin";
+  const usesContent = active !== "Admin";
 
   async function saveTab<K extends keyof TabContentData>(tab: K, next: TabContentData[K]) {
     const res = await fetch(`/api/content/${tab}`, {
@@ -737,7 +742,13 @@ export default function HomePage() {
         {content && active === "Projects" && (
           <ProjectsTab data={content.projects} editable={canEdit("projects")} onSave={(d) => saveTab("projects", d)} />
         )}
-        {active === "Food" && <FoodTab />}
+        {content && active === "Food" && (
+          <FoodTab
+            data={{ ...emptyFood, ...(content.food ?? {}) }}
+            editable={canEdit("food")}
+            onSave={(d) => saveTab("food", d)}
+          />
+        )}
         {content && active === "About" && (
           <AboutTab data={content.about} editable={canEdit("about")} onSave={(d) => saveTab("about", d)} />
         )}
