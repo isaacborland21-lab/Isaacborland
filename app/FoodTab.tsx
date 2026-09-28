@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { BATCHES, Batch, DEFAULT_PLAN, MealPlanData, PlanMeal } from "./foodDefaults";
+import { buildGroceryList, groceryListToText } from "@/lib/grocery";
 
 const mono = "'IBM Plex Mono', monospace";
 const sans = "'IBM Plex Sans', sans-serif";
@@ -9,38 +11,14 @@ const sans = "'IBM Plex Sans', sans-serif";
 
 export type Recipe = { id: string; name: string; ingredients: string; steps: string; source?: string };
 export type Todo = { id: string; text: string; done: boolean };
-export type FoodContent = { recipes: Recipe[]; todos: Todo[] };
+export type FoodContent = { recipes: Recipe[]; todos: Todo[]; plan?: MealPlanData };
 
-type Batch = "Sunday prep" | "Wednesday prep";
-type Meal = { day: string; name: string; note: string; batch: Batch };
-
-// ---------- Static meal plan ----------
-// Sunday prep covers Mon-Wed. Wednesday prep covers Thu-Sun.
-// Anything eaten 4 days after its prep day gets frozen, then thawed the night before.
-
-const lunches: Meal[] = [
-  { day: "Mon", name: "Cilantro-lime chicken burrito bowls", note: "Rice, black beans, corn salsa, chicken.", batch: "Sunday prep" },
-  { day: "Tue", name: "Greek chicken quinoa bowls", note: "Cucumber, tomato, feta. Tzatziki on the side so it stays crisp.", batch: "Sunday prep" },
-  { day: "Wed", name: "Beef & broccoli with rice", note: "Keep the sauce thick so the rice doesn't go soggy.", batch: "Sunday prep" },
-  { day: "Thu", name: "Pesto chicken pasta salad", note: "Eat cold. Cherry tomatoes, mozzarella, spinach.", batch: "Wednesday prep" },
-  { day: "Fri", name: "Peanut chicken noodles", note: "Rice noodles, shredded carrot, cabbage. Cold or warm.", batch: "Wednesday prep" },
-  { day: "Sat", name: "Turkey chili", note: "Big pot. Freeze the extra portions for next week.", batch: "Wednesday prep" },
-  { day: "Sun", name: "BBQ pulled pork sweet potato bowls", note: "Freeze Wednesday, move to fridge Saturday night.", batch: "Wednesday prep" },
-];
-
-const dinners: Meal[] = [
-  { day: "Mon", name: "Sheet-pan sausage, peppers & potatoes", note: "One pan, 35 min. Portion into containers.", batch: "Sunday prep" },
-  { day: "Tue", name: "Slow-cooker chicken tikka masala", note: "Serve over rice. Better on day 2.", batch: "Sunday prep" },
-  { day: "Wed", name: "Baked ziti", note: "Assemble Sunday, keep unbaked in the fridge, bake Wednesday night.", batch: "Sunday prep" },
-  { day: "Thu", name: "Honey-garlic chicken & green beans", note: "Cook Wednesday, reheats well. Serve with rice.", batch: "Wednesday prep" },
-  { day: "Fri", name: "Steak fajitas", note: "Slice peppers & onions, marinate steak Wednesday. 15 min to cook Friday.", batch: "Wednesday prep" },
-  { day: "Sat", name: "Shepherd's pie", note: "Assemble Wednesday, bake Saturday.", batch: "Wednesday prep" },
-  { day: "Sun", name: "Chicken enchiladas", note: "Assemble & freeze Wednesday. Thaw Saturday night, bake Sunday.", batch: "Wednesday prep" },
-];
+type MealKind = "lunch" | "dinner";
 
 const batchColor: Record<Batch, string> = {
   "Sunday prep": "var(--accent)",
   "Wednesday prep": "#7fb3d5",
+  "Cook fresh": "#8fbf7f",
 };
 
 // ---------- Shared styles ----------
@@ -105,6 +83,13 @@ function newId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function lines(text: string) {
+  return text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+}
+
 function Pill({ label, on, onClick }: { label: string; on: boolean; onClick: () => void }) {
   return (
     <button
@@ -126,11 +111,238 @@ function Pill({ label, on, onClick }: { label: string; on: boolean; onClick: () 
   );
 }
 
+// Ingredients for a plan slot: the linked recipe's if there is one, else the slot's own.
+function slotIngredients(meal: PlanMeal, recipes: Recipe[]): string[] {
+  if (meal.recipeId) {
+    const r = recipes.find((x) => x.id === meal.recipeId);
+    if (r) return lines(r.ingredients);
+  }
+  return lines(meal.ingredients ?? "");
+}
+
+// ---------- Meal slot editor ----------
+
+function MealEditForm({
+  meal,
+  recipes,
+  saving,
+  onSave,
+  onCancel,
+}: {
+  meal: PlanMeal;
+  recipes: Recipe[];
+  saving: boolean;
+  onSave: (m: PlanMeal) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState(meal.name);
+  const [note, setNote] = useState(meal.note);
+  const [batch, setBatch] = useState<Batch>(meal.batch);
+  const [recipeId, setRecipeId] = useState(meal.recipeId ?? "");
+  const [ingredients, setIngredients] = useState(meal.ingredients ?? "");
+  const linked = recipes.find((r) => r.id === recipeId);
+
+  return (
+    <div style={{ border: "1px solid var(--surface-border)", borderRadius: 6, padding: 14, margin: "8px 0" }}>
+      <p style={labelStyle}>{meal.day}</p>
+
+      {recipes.length > 0 && (
+        <>
+          <select
+            value={recipeId}
+            onChange={(e) => {
+              const id = e.target.value;
+              setRecipeId(id);
+              const r = recipes.find((x) => x.id === id);
+              if (r) setName(r.name);
+            }}
+            style={{ ...inputStyle, marginBottom: 10 }}
+          >
+            <option value="">Custom meal (type it below)</option>
+            {recipes.map((r) => (
+              <option key={r.id} value={r.id}>
+                Use saved recipe: {r.name}
+              </option>
+            ))}
+          </select>
+        </>
+      )}
+
+      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Meal name" style={inputStyle} />
+      <input
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="Prep note (optional)"
+        style={{ ...inputStyle, marginTop: 10 }}
+      />
+      <select value={batch} onChange={(e) => setBatch(e.target.value as Batch)} style={{ ...inputStyle, marginTop: 10 }}>
+        {BATCHES.map((b) => (
+          <option key={b} value={b}>
+            {b}
+          </option>
+        ))}
+      </select>
+
+      {linked ? (
+        <p style={{ ...dimText, fontSize: 12, marginTop: 10 }}>
+          Grocery list will use the {lines(linked.ingredients).length} ingredients from your saved recipe.
+        </p>
+      ) : (
+        <textarea
+          value={ingredients}
+          onChange={(e) => setIngredients(e.target.value)}
+          placeholder={"Ingredients for the grocery list (one per line)\n1.5 lb chicken breast\n1 cup rice"}
+          rows={5}
+          style={{ ...inputStyle, marginTop: 10, resize: "vertical" }}
+        />
+      )}
+
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        <button
+          style={primaryBtn}
+          disabled={saving || name.trim().length === 0}
+          onClick={() => {
+            const next: PlanMeal = { day: meal.day, name: name.trim(), note: note.trim(), batch };
+            if (linked) next.recipeId = linked.id;
+            else if (ingredients.trim()) next.ingredients = ingredients.trim();
+            onSave(next);
+          }}
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+        <button style={ghostBtn} onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Grocery list panel ----------
+
+function GroceryPanel({ plan, recipes, onClose }: { plan: MealPlanData; recipes: Recipe[]; onClose: () => void }) {
+  const [useLunch, setUseLunch] = useState(true);
+  const [useDinner, setUseDinner] = useState(true);
+  const [copied, setCopied] = useState(false);
+
+  const { sections, text, missing } = useMemo(() => {
+    const meals = [...(useLunch ? plan.lunch : []), ...(useDinner ? plan.dinner : [])];
+    const all: string[] = [];
+    const missing: string[] = [];
+    for (const m of meals) {
+      const ing = slotIngredients(m, recipes);
+      if (ing.length === 0) missing.push(`${m.day}: ${m.name}`);
+      all.push(...ing);
+    }
+    const sections = buildGroceryList(all);
+    const text = groceryListToText(sections, "Grocery list (isaacborland.com)");
+    return { sections, text, missing };
+  }, [plan, recipes, useLunch, useDinner]);
+
+  const itemCount = sections.reduce((n, s) => n + s.items.length, 0);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  function download() {
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `grocery-list-${new Date().toISOString().slice(0, 10)}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div style={{ border: "1px solid var(--accent)", borderRadius: 6, padding: 16, marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
+        <span style={{ fontFamily: mono, fontSize: 14, fontWeight: 600 }}>Grocery list · {itemCount} items</span>
+        <button style={linkBtn} onClick={onClose}>
+          Close
+        </button>
+      </div>
+
+      <div style={{ display: "flex", gap: 16, marginBottom: 12 }}>
+        {(
+          [
+            ["Lunches", useLunch, setUseLunch],
+            ["Dinners", useDinner, setUseDinner],
+          ] as const
+        ).map(([label, on, set]) => (
+          <label key={label} style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: sans, fontSize: 13, color: "var(--text-dim)" }}>
+            <input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} />
+            {label}
+          </label>
+        ))}
+      </div>
+
+      {missing.length > 0 && (
+        <p style={{ ...dimText, fontSize: 12, color: "#e8b86a", marginBottom: 10 }}>
+          No ingredients listed for {missing.length} meal{missing.length === 1 ? "" : "s"} (not in this list): {missing.join(", ")}.
+        </p>
+      )}
+
+      {sections.length === 0 ? (
+        <p style={dimText}>Nothing to buy yet.</p>
+      ) : (
+        <div style={{ maxHeight: 360, overflowY: "auto", marginBottom: 12 }}>
+          {sections.map((s) => (
+            <div key={s.section} style={{ marginBottom: 12 }}>
+              <p style={labelStyle}>{s.section}</p>
+              <ul style={{ ...dimText, paddingLeft: 18, margin: 0 }}>
+                {s.items.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button style={primaryBtn} disabled={itemCount === 0} onClick={copy}>
+          {copied ? "Copied!" : "Copy list"}
+        </button>
+        <button style={ghostBtn} disabled={itemCount === 0} onClick={download}>
+          Download .txt
+        </button>
+      </div>
+      <p style={{ ...dimText, fontSize: 11, marginTop: 8 }}>
+        Same items are added up (1 cup + 1 cup rice = 2 cup). Different units (lb vs oz) aren&rsquo;t converted.
+      </p>
+    </div>
+  );
+}
+
 // ---------- Meal plan ----------
 
-function MealPlan() {
-  const [view, setView] = useState<"Lunch" | "Dinner">("Lunch");
-  const meals = view === "Lunch" ? lunches : dinners;
+function MealPlan({
+  plan,
+  recipes,
+  editable,
+  saving,
+  onSavePlan,
+}: {
+  plan: MealPlanData;
+  recipes: Recipe[];
+  editable: boolean;
+  saving: boolean;
+  onSavePlan: (next: MealPlanData) => Promise<boolean>;
+}) {
+  const [view, setView] = useState<MealKind>("lunch");
+  const [editingDay, setEditingDay] = useState<string | null>(null);
+  const [showGroceries, setShowGroceries] = useState(false);
+  const meals = plan[view];
 
   return (
     <>
@@ -138,28 +350,81 @@ function MealPlan() {
         Two prep sessions: <strong>Sunday</strong> covers Mon–Wed, <strong>Wednesday</strong> covers Thu–Sun. Cooked food
         holds 3–4 days in the fridge, so anything eaten 4 days out gets frozen and thawed the night before.
       </p>
-      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-        {(["Lunch", "Dinner"] as const).map((v) => (
-          <Pill key={v} label={v} on={v === view} onClick={() => setView(v)} />
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "center", flexWrap: "wrap" }}>
+        {(["lunch", "dinner"] as const).map((v) => (
+          <Pill
+            key={v}
+            label={v === "lunch" ? "Lunch" : "Dinner"}
+            on={v === view}
+            onClick={() => {
+              setView(v);
+              setEditingDay(null);
+            }}
+          />
         ))}
+        <button style={{ ...ghostBtn, marginLeft: "auto", padding: "6px 12px" }} onClick={() => setShowGroceries((s) => !s)}>
+          {showGroceries ? "Hide grocery list" : "Export grocery list"}
+        </button>
       </div>
-      {meals.map((m, i) => (
-        <div
-          key={m.day}
-          style={{ display: "flex", gap: 14, padding: "14px 0", borderTop: i === 0 ? "none" : "1px solid var(--surface-border)" }}
-        >
-          <span style={{ fontFamily: mono, fontSize: 12, color: "var(--accent)", width: 32, flexShrink: 0, paddingTop: 2 }}>{m.day}</span>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "baseline" }}>
-              <span style={{ fontFamily: sans, fontSize: 15, fontWeight: 600 }}>{m.name}</span>
-              <span style={{ fontFamily: mono, fontSize: 10, color: batchColor[m.batch], textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                {m.batch}
-              </span>
+
+      {showGroceries && <GroceryPanel plan={plan} recipes={recipes} onClose={() => setShowGroceries(false)} />}
+
+      {meals.map((m, i) =>
+        editingDay === m.day ? (
+          <MealEditForm
+            key={m.day}
+            meal={m}
+            recipes={recipes}
+            saving={saving}
+            onCancel={() => setEditingDay(null)}
+            onSave={async (next) => {
+              const updated = { ...plan, [view]: plan[view].map((x) => (x.day === m.day ? next : x)) };
+              if (await onSavePlan(updated)) setEditingDay(null);
+            }}
+          />
+        ) : (
+          <div
+            key={m.day}
+            style={{ display: "flex", gap: 14, padding: "14px 0", borderTop: i === 0 ? "none" : "1px solid var(--surface-border)" }}
+          >
+            <span style={{ fontFamily: mono, fontSize: 12, color: "var(--accent)", width: 32, flexShrink: 0, paddingTop: 2 }}>{m.day}</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "baseline" }}>
+                <span style={{ fontFamily: sans, fontSize: 15, fontWeight: 600 }}>{m.name}</span>
+                <span style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
+                  <span style={{ fontFamily: mono, fontSize: 10, color: batchColor[m.batch], textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                    {m.batch}
+                  </span>
+                  {editable && (
+                    <button style={linkBtn} onClick={() => setEditingDay(m.day)}>
+                      Edit
+                    </button>
+                  )}
+                </span>
+              </div>
+              {m.note && <p style={{ ...dimText, marginTop: 4 }}>{m.note}</p>}
+              {m.recipeId && recipes.some((r) => r.id === m.recipeId) && (
+                <p style={{ fontFamily: mono, fontSize: 11, color: "var(--text-dim)", margin: "4px 0 0 0" }}>↳ from your saved recipes</p>
+              )}
             </div>
-            <p style={{ ...dimText, marginTop: 4 }}>{m.note}</p>
           </div>
-        </div>
-      ))}
+        )
+      )}
+
+      {editable && (
+        <button
+          style={{ ...linkBtn, marginTop: 14, color: "var(--text-dim)" }}
+          onClick={() => {
+            if (window.confirm("Reset lunches and dinners back to the default plan? Your edits to the plan will be lost (recipes and to-dos stay).")) {
+              onSavePlan(DEFAULT_PLAN);
+              setEditingDay(null);
+            }
+          }}
+        >
+          Reset plan to default
+        </button>
+      )}
     </>
   );
 }
@@ -260,9 +525,7 @@ function RecipeForm({
         <button
           style={primaryBtn}
           disabled={saving || importing || name.trim().length === 0}
-          onClick={() =>
-            onSubmit({ ...initial, name: name.trim(), ingredients, steps, ...(source ? { source } : {}) })
-          }
+          onClick={() => onSubmit({ ...initial, name: name.trim(), ingredients, steps, ...(source ? { source } : {}) })}
         >
           {saving ? "Saving…" : "Save recipe"}
         </button>
@@ -272,13 +535,6 @@ function RecipeForm({
       </div>
     </div>
   );
-}
-
-function lines(text: string) {
-  return text
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean);
 }
 
 function hostOf(url: string) {
@@ -515,6 +771,8 @@ export default function FoodTab({
     setLocal(data);
   }, [data]);
 
+  const plan = local.plan ?? DEFAULT_PLAN;
+
   async function persist(next: FoodContent): Promise<boolean> {
     const prev = local;
     setLocal(next);
@@ -545,7 +803,15 @@ export default function FoodTab({
         ))}
       </div>
 
-      {section === "Meal plan" && <MealPlan />}
+      {section === "Meal plan" && (
+        <MealPlan
+          plan={plan}
+          recipes={local.recipes}
+          editable={editable}
+          saving={saving}
+          onSavePlan={(nextPlan) => persist({ ...local, plan: nextPlan })}
+        />
+      )}
       {section === "Recipes" && (
         <Recipes recipes={local.recipes} editable={editable} saving={saving} save={(recipes) => persist({ ...local, recipes })} />
       )}
