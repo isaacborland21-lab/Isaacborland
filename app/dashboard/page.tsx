@@ -2,12 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useUser } from "@clerk/nextjs";
 import AliveBackground from "../AliveBackground";
 import styles from "./dashboard.module.css";
+import type { HealthGoals, HealthMetrics } from "@/lib/health";
 
 // ============================================================
 // Room dashboard — meant to live full-screen on a spare screen.
-// Clock, Bozeman weather, and Apple Calendar "next up".
+// Clock, Bozeman weather, Apple Calendar "next up", and Apple Health
+// activity rings.
 // Keeps the screen awake, dims itself overnight, nudges its layout a few
 // pixels every so often (burn-in), and reloads itself every few hours so
 // new deploys show up without anyone touching it.
@@ -18,9 +21,14 @@ const PLACE = { name: "Bozeman", lat: 45.677, lon: -111.0429, tz: "America/Denve
 
 const WEATHER_EVERY_MS = 10 * 60 * 1000;
 const CALENDAR_EVERY_MS = 5 * 60 * 1000;
+const HEALTH_EVERY_MS = 5 * 60 * 1000;
 const RELOAD_EVERY_MS = 6 * 60 * 60 * 1000;
 const NIGHT_START = 23; // 11 pm
 const NIGHT_END = 6; // 6 am
+// How long a health sync can go stale before the dashboard says so —
+// Shortcuts can only read Health data while the phone is unlocked, so this
+// is expected sometimes, not a bug.
+const HEALTH_STALE_MS = 3 * 60 * 60 * 1000;
 
 // ---------------- Types ----------------
 
@@ -40,6 +48,13 @@ type CalState =
   | { status: "signed-out" }
   | { status: "error"; message: string }
   | { status: "ok"; events: CalEvent[]; errors: string[] };
+
+type HealthState =
+  | { status: "loading" }
+  | { status: "unconfigured" }
+  | { status: "signed-out" }
+  | { status: "error"; message: string }
+  | { status: "ok"; metrics: HealthMetrics; updatedAt: string | null };
 
 type Weather = {
   current: {
@@ -549,14 +564,198 @@ function WeatherPanel({ wx, failed }: { wx: Weather | null; failed: boolean }) {
   );
 }
 
+// ---------------- Activity rings ----------------
+
+const RING_COLORS = { move: "#fb0f45", exercise: "#a6f60b", stand: "#04e5e5" } as const;
+
+function HealthStatus({ health }: { health: HealthState }) {
+  if (health.status === "loading") return <p className={styles.muted}>Loading activity…</p>;
+  if (health.status === "unconfigured")
+    return (
+      <p className={styles.muted}>
+        Apple Health isn&apos;t connected yet. Set up the Shortcuts automation to send steps and activity data here.
+      </p>
+    );
+  if (health.status === "signed-out")
+    return (
+      <p className={styles.muted}>
+        Signed out. <Link href="/sign-in">Sign in again</Link> to load activity.
+      </p>
+    );
+  if (health.status === "error") return <p className={styles.muted}>{health.message}</p>;
+  return null;
+}
+
+function Ring({ pct, radius, color }: { pct: number; radius: number; color: string }) {
+  const circumference = 2 * Math.PI * radius;
+  const filled = Math.max(0, Math.min(1, pct));
+  return (
+    <>
+      <circle className={styles.ringTrack} cx="60" cy="60" r={radius} strokeWidth={10} />
+      <circle
+        className={styles.ringFill}
+        cx="60"
+        cy="60"
+        r={radius}
+        strokeWidth={10}
+        stroke={color}
+        strokeDasharray={circumference}
+        strokeDashoffset={circumference * (1 - filled)}
+      />
+    </>
+  );
+}
+
+function GoalsEditor({ goals, onDone }: { goals: HealthGoals; onDone: () => void }) {
+  const [move, setMove] = useState(String(goals.move_kcal));
+  const [exercise, setExercise] = useState(String(goals.exercise_min));
+  const [stand, setStand] = useState(String(goals.stand_hours));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/health/goals", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          move_kcal: Number(move),
+          exercise_min: Number(exercise),
+          stand_hours: Number(stand),
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to save.");
+      }
+      onDone();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className={styles.goalsForm}>
+      <div className={styles.goalsRow}>
+        <label>Move (kcal)</label>
+        <input value={move} onChange={(e: { target: { value: string } }) => setMove(e.target.value)} inputMode="numeric" />
+      </div>
+      <div className={styles.goalsRow}>
+        <label>Exercise (min)</label>
+        <input value={exercise} onChange={(e: { target: { value: string } }) => setExercise(e.target.value)} inputMode="numeric" />
+      </div>
+      <div className={styles.goalsRow}>
+        <label>Stand (hrs)</label>
+        <input value={stand} onChange={(e: { target: { value: string } }) => setStand(e.target.value)} inputMode="numeric" />
+      </div>
+      {error && <p className={styles.warn}>{error}</p>}
+      <div className={styles.goalsActions}>
+        <button className={styles.smallBtn} disabled={saving} onClick={save}>
+          {saving ? "Saving…" : "Save"}
+        </button>
+        <button className={styles.smallBtnGhost} onClick={onDone}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function RingsCard({ health, isOwner, now }: { health: HealthState; isOwner: boolean; now: Date }) {
+  const [editing, setEditing] = useState(false);
+
+  if (health.status !== "ok" || editing) {
+    return (
+      <section className={`card ${styles.ringsCard}`} style={{ display: "block" }}>
+        <p className={styles.eyebrow}>Activity</p>
+        {editing && health.status === "ok" ? (
+          <GoalsEditor goals={health.metrics.goals} onDone={() => setEditing(false)} />
+        ) : (
+          <>
+            <HealthStatus health={health} />
+            {isOwner && health.status !== "loading" && (
+              <button className={styles.smallBtnGhost} style={{ marginTop: 10 }} onClick={() => setEditing(true)}>
+                Set goals
+              </button>
+            )}
+          </>
+        )}
+      </section>
+    );
+  }
+
+  const { metrics, updatedAt } = health;
+  const { goals } = metrics;
+  const movePct = metrics.move_kcal !== null ? metrics.move_kcal / goals.move_kcal : 0;
+  const exercisePct = metrics.exercise_min !== null ? metrics.exercise_min / goals.exercise_min : 0;
+  const standPct = metrics.stand_hours !== null ? metrics.stand_hours / goals.stand_hours : 0;
+
+  const staleMs = updatedAt ? now.getTime() - new Date(updatedAt).getTime() : null;
+  const stale = staleMs !== null && staleMs > HEALTH_STALE_MS;
+
+  const fmt = (n: number | null, unit: string) => (n === null ? `— ${unit}` : `${Math.round(n)} ${unit}`);
+
+  return (
+    <section className={`card ${styles.ringsCard}`}>
+      <svg className={styles.ringsSvg} viewBox="0 0 120 120">
+        <Ring pct={movePct} radius={54} color={RING_COLORS.move} />
+        <Ring pct={exercisePct} radius={40} color={RING_COLORS.exercise} />
+        <Ring pct={standPct} radius={26} color={RING_COLORS.stand} />
+      </svg>
+      <div className={styles.ringStats}>
+        <p className={styles.eyebrow} style={{ marginBottom: 2 }}>
+          Activity
+        </p>
+        <div className={styles.ringRow}>
+          <span className={styles.ringDot} style={{ background: RING_COLORS.move }} />
+          <span className={styles.ringLabel}>Move</span>
+          <span className={styles.ringValue}>{fmt(metrics.move_kcal, "kcal")}</span>
+          <span className={styles.ringGoal}>/ {goals.move_kcal}</span>
+        </div>
+        <div className={styles.ringRow}>
+          <span className={styles.ringDot} style={{ background: RING_COLORS.exercise }} />
+          <span className={styles.ringLabel}>Exercise</span>
+          <span className={styles.ringValue}>{fmt(metrics.exercise_min, "min")}</span>
+          <span className={styles.ringGoal}>/ {goals.exercise_min}</span>
+        </div>
+        <div className={styles.ringRow}>
+          <span className={styles.ringDot} style={{ background: RING_COLORS.stand }} />
+          <span className={styles.ringLabel}>Stand</span>
+          <span className={styles.ringValue}>{fmt(metrics.stand_hours, "hrs")}</span>
+          <span className={styles.ringGoal}>/ {goals.stand_hours}</span>
+        </div>
+        <div className={styles.stepsRow}>
+          <span className={styles.stepsValue}>{metrics.steps === null ? "—" : metrics.steps.toLocaleString()}</span>
+          <span className={styles.stepsLabel}>steps</span>
+        </div>
+        {stale && staleMs !== null && (
+          <p className={styles.warn}>Last synced {span(Math.round(staleMs / 60000))} ago — your phone may have been locked.</p>
+        )}
+        {isOwner && (
+          <button className={styles.smallBtnGhost} style={{ alignSelf: "flex-start", marginTop: 2 }} onClick={() => setEditing(true)}>
+            Edit goals
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
 // ---------------- Page ----------------
 
 export default function DashboardPage() {
   const now = useTicker(15_000);
   const awake = useWakeLock();
+  const { user } = useUser();
+  const isOwner = (user?.publicMetadata as { owner?: boolean } | undefined)?.owner === true;
   const [wx, setWx] = useState<Weather | null>(null);
   const [wxFailed, setWxFailed] = useState(false);
   const [cal, setCal] = useState<CalState>({ status: "loading" });
+  const [health, setHealth] = useState<HealthState>({ status: "loading" });
   const [updated, setUpdated] = useState<Date | null>(null);
   const [chrome, setChrome] = useState(true);
   const [shift, setShift] = useState({ x: 0, y: 0 });
@@ -581,12 +780,15 @@ export default function DashboardPage() {
     }
   }, []);
 
+  // Signed-out handling is shared by calendar and health, since both sit
+  // behind the same Clerk session and fail the same way when it's gone.
+  const signedOutResponse = (res: Response) =>
+    res.status === 401 || res.status === 404 || res.type === "opaqueredirect" || res.status === 307 || res.status === 302;
+
   const loadCalendar = useCallback(async () => {
     try {
       const res = await fetch("/api/calendar", { cache: "no-store", redirect: "manual" });
-      // Clerk's middleware answers signed-out API calls with a 404 (or a
-      // redirect); the route itself says 401. All mean "sign in again".
-      if (res.status === 401 || res.status === 404 || res.type === "opaqueredirect" || res.status === 307 || res.status === 302) {
+      if (signedOutResponse(res)) {
         setCal({ status: "signed-out" });
         return;
       }
@@ -599,27 +801,49 @@ export default function DashboardPage() {
       // Keep the last good calendar on screen; only show an error if we never had one.
       setCal((prev) => (prev.status === "ok" ? prev : { status: "error", message: "Couldn't load the calendar — retrying." }));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const loadHealth = useCallback(async () => {
+    try {
+      const res = await fetch("/api/health", { cache: "no-store", redirect: "manual" });
+      if (signedOutResponse(res)) {
+        setHealth({ status: "signed-out" });
+        return;
+      }
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      if (!data.configured) setHealth({ status: "unconfigured" });
+      else setHealth({ status: "ok", metrics: data.metrics, updatedAt: data.updatedAt });
+    } catch {
+      setHealth((prev) => (prev.status === "ok" ? prev : { status: "error", message: "Couldn't load activity — retrying." }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Data refresh loops (+ refresh when the screen comes back on).
   useEffect(() => {
     loadWeather();
     loadCalendar();
+    loadHealth();
     const w = window.setInterval(loadWeather, WEATHER_EVERY_MS);
     const c = window.setInterval(loadCalendar, CALENDAR_EVERY_MS);
+    const h = window.setInterval(loadHealth, HEALTH_EVERY_MS);
     const onVisible = () => {
       if (document.visibilityState === "visible") {
         loadWeather();
         loadCalendar();
+        loadHealth();
       }
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       window.clearInterval(w);
       window.clearInterval(c);
+      window.clearInterval(h);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [loadWeather, loadCalendar]);
+  }, [loadWeather, loadCalendar, loadHealth]);
 
   // Reload every few hours so new deploys and a fresh session get picked up.
   useEffect(() => {
@@ -683,6 +907,7 @@ export default function DashboardPage() {
         </div>
         <div className={styles.right}>
           <WeatherPanel wx={wx} failed={wxFailed} />
+          {now && <RingsCard health={health} isOwner={isOwner} now={now} />}
           {now && <Agenda cal={cal} now={now} />}
         </div>
       </main>
