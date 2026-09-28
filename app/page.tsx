@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import WeatherEffects from "./WeatherEffects";
+import { useEffect, useState } from "react";
+import WeatherEffects, { WeatherInfo } from "./WeatherEffects";
 
 const projects = [
   { name: "Gmail cleanup", status: "in progress" },
@@ -119,22 +119,43 @@ function ContactTab() {
   );
 }
 
+function weatherText(w: WeatherInfo | null): string {
+  if (!w) return "";
+  const parts: string[] = [];
+  if (w.place) parts.push(w.place);
+  if (w.temp !== null) parts.push(`${w.temp}°F`);
+  let text = parts.join(" · ");
+  if (w.kind === "snow") text += " · snowing";
+  if (w.kind === "rain") text += " · raining";
+  if (w.kind === "clear") text += " · clear";
+  if (w.kind === "thunder") text += " · storming";
+  return text;
+}
+
 export default function HomePage() {
   const [active, setActive] = useState<Tab>("Home");
+  const [season, setSeason] = useState<string>("");
+  const [weather, setWeather] = useState<WeatherInfo | null>(null);
+
+  useEffect(() => {
+    // Read the season the server already computed (data-season on <html>)
+    // rather than recomputing the date client-side, so this never disagrees
+    // with what was actually rendered.
+    const s = document.documentElement.getAttribute("data-season");
+    if (s) setSeason(s);
+  }, []);
 
   return (
     <main
       style={{
         minHeight: "100vh",
         display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
         justifyContent: "center",
         padding: "64px 24px",
         position: "relative",
       }}
     >
-      <WeatherEffects />
+      <WeatherEffects onWeatherChange={setWeather} />
 
       <div style={{ maxWidth: 560, width: "100%", position: "relative", zIndex: 1 }}>
         <div
@@ -156,15 +177,31 @@ export default function HomePage() {
           >
             isaacborland.com
           </p>
-          <p
-            id="season-label"
-            style={{
-              fontFamily: mono,
-              fontSize: 12,
-              color: "var(--accent)",
-              margin: 0,
-            }}
-          />
+
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+            <p
+              style={{
+                fontFamily: mono,
+                fontSize: 12,
+                color: "var(--accent)",
+                margin: 0,
+              }}
+            >
+              {seasonLabels[season] ?? ""}
+            </p>
+            {weather && (
+              <p
+                style={{
+                  fontFamily: mono,
+                  fontSize: 11,
+                  color: "var(--text-dim)",
+                  margin: 0,
+                }}
+              >
+                {weatherText(weather)}
+              </p>
+            )}
+          </div>
         </div>
 
         <nav
@@ -206,22 +243,6 @@ export default function HomePage() {
         {active === "About" && <AboutTab />}
         {active === "Contact" && <ContactTab />}
       </div>
-
-      <script
-        // Reads the season the server already computed (data-season on
-        // <html>) and shows it as a small label, without needing a second
-        // client-side date calculation that could disagree with the server.
-        dangerouslySetInnerHTML={{
-          __html: `
-            (function() {
-              var season = document.documentElement.getAttribute('data-season');
-              var labels = ${JSON.stringify(seasonLabels)};
-              var el = document.getElementById('season-label');
-              if (el && season && labels[season]) el.textContent = labels[season];
-            })();
-          `,
-        }}
-      />
     </main>
   );
 }
