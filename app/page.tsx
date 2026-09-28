@@ -127,6 +127,8 @@ export default function HomePage() {
       style={{
         minHeight: "100vh",
         display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
         justifyContent: "center",
         padding: "64px 24px",
         position: "relative",
