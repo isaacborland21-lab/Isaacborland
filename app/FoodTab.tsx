@@ -7,7 +7,7 @@ const sans = "'IBM Plex Sans', sans-serif";
 
 // ---------- Types ----------
 
-export type Recipe = { id: string; name: string; ingredients: string; steps: string };
+export type Recipe = { id: string; name: string; ingredients: string; steps: string; source?: string };
 export type Todo = { id: string; text: string; done: boolean };
 export type FoodContent = { recipes: Recipe[]; todos: Todo[] };
 
@@ -92,6 +92,13 @@ const linkBtn: React.CSSProperties = {
 
 const dimText: React.CSSProperties = { fontFamily: sans, fontSize: 13, lineHeight: 1.5, color: "var(--text-dim)", margin: 0 };
 const errorStyle: React.CSSProperties = { fontFamily: sans, fontSize: 13, color: "#e88", margin: "8px 0 0 0" };
+const labelStyle: React.CSSProperties = {
+  fontFamily: mono,
+  fontSize: 11,
+  color: "var(--accent)",
+  textTransform: "uppercase",
+  margin: "0 0 4px 0",
+};
 
 function newId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
@@ -159,6 +166,8 @@ function MealPlan() {
 
 // ---------- Recipes ----------
 
+type Imported = { name: string; ingredients: string[]; steps: string[]; source: string };
+
 function RecipeForm({
   initial,
   onSubmit,
@@ -173,29 +182,87 @@ function RecipeForm({
   const [name, setName] = useState(initial.name);
   const [ingredients, setIngredients] = useState(initial.ingredients);
   const [steps, setSteps] = useState(initial.steps);
+  const [source, setSource] = useState(initial.source ?? "");
+  const [link, setLink] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  async function importFromLink() {
+    const url = link.trim();
+    if (!url) return;
+    setImporting(true);
+    setImportMsg(null);
+    try {
+      const res = await fetch("/api/recipe-import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const data = (await res.json().catch(() => ({}))) as Partial<Imported> & { error?: string };
+      if (!res.ok) throw new Error(data.error || "Import failed.");
+      const ing = data.ingredients ?? [];
+      const st = data.steps ?? [];
+      if (data.name) setName(data.name);
+      setIngredients(ing.join("\n"));
+      setSteps(st.join("\n"));
+      setSource(data.source ?? url);
+      setLink("");
+      setImportMsg({
+        ok: true,
+        text: `Imported ${ing.length} ingredient${ing.length === 1 ? "" : "s"} and ${st.length} step${st.length === 1 ? "" : "s"}. Review, then save.`,
+      });
+    } catch (e) {
+      setImportMsg({ ok: false, text: (e as Error).message });
+    } finally {
+      setImporting(false);
+    }
+  }
 
   return (
     <div style={{ border: "1px solid var(--surface-border)", borderRadius: 6, padding: 14, marginBottom: 12 }}>
+      <p style={labelStyle}>Import from a link</p>
+      <div style={{ display: "flex", gap: 8 }}>
+        <input
+          value={link}
+          onChange={(e) => setLink(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") importFromLink();
+          }}
+          placeholder="Paste a recipe link (https://…)"
+          inputMode="url"
+          style={{ ...inputStyle, flex: 1 }}
+        />
+        <button style={primaryBtn} disabled={importing || !link.trim()} onClick={importFromLink}>
+          {importing ? "Importing…" : "Import"}
+        </button>
+      </div>
+      {importMsg && (
+        <p style={{ ...dimText, fontSize: 12, marginTop: 6, color: importMsg.ok ? "#8fbf7f" : "#e88" }}>{importMsg.text}</p>
+      )}
+
+      <p style={{ ...labelStyle, marginTop: 14 }}>Or type it in</p>
       <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Recipe name" style={inputStyle} />
       <textarea
         value={ingredients}
         onChange={(e) => setIngredients(e.target.value)}
         placeholder={"Ingredients (one per line)\n2 lb chicken thighs\n1 cup rice"}
-        rows={5}
+        rows={6}
         style={{ ...inputStyle, marginTop: 10, resize: "vertical" }}
       />
       <textarea
         value={steps}
         onChange={(e) => setSteps(e.target.value)}
         placeholder={"Steps (one per line)\nPreheat oven to 425°F\nSeason chicken..."}
-        rows={5}
+        rows={6}
         style={{ ...inputStyle, marginTop: 10, resize: "vertical" }}
       />
       <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
         <button
           style={primaryBtn}
-          disabled={saving || name.trim().length === 0}
-          onClick={() => onSubmit({ ...initial, name: name.trim(), ingredients, steps })}
+          disabled={saving || importing || name.trim().length === 0}
+          onClick={() =>
+            onSubmit({ ...initial, name: name.trim(), ingredients, steps, ...(source ? { source } : {}) })
+          }
         >
           {saving ? "Saving…" : "Save recipe"}
         </button>
@@ -212,6 +279,14 @@ function lines(text: string) {
     .split("\n")
     .map((l) => l.trim())
     .filter(Boolean);
+}
+
+function hostOf(url: string) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "original";
+  }
 }
 
 function Recipes({
@@ -290,9 +365,19 @@ function Recipes({
             </div>
             {openId === r.id && (
               <div style={{ marginTop: 10, paddingLeft: 16 }}>
+                {r.source && (
+                  <a
+                    href={r.source}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ fontFamily: mono, fontSize: 12, display: "inline-block", marginBottom: 10 }}
+                  >
+                    View on {hostOf(r.source)} ↗
+                  </a>
+                )}
                 {lines(r.ingredients).length > 0 && (
                   <>
-                    <p style={{ fontFamily: mono, fontSize: 11, color: "var(--accent)", textTransform: "uppercase", margin: "0 0 4px 0" }}>Ingredients</p>
+                    <p style={labelStyle}>Ingredients</p>
                     <ul style={{ ...dimText, paddingLeft: 18, margin: "0 0 10px 0" }}>
                       {lines(r.ingredients).map((l, idx) => (
                         <li key={idx}>{l}</li>
@@ -302,7 +387,7 @@ function Recipes({
                 )}
                 {lines(r.steps).length > 0 && (
                   <>
-                    <p style={{ fontFamily: mono, fontSize: 11, color: "var(--accent)", textTransform: "uppercase", margin: "0 0 4px 0" }}>Steps</p>
+                    <p style={labelStyle}>Steps</p>
                     <ol style={{ ...dimText, paddingLeft: 18, margin: 0 }}>
                       {lines(r.steps).map((l, idx) => (
                         <li key={idx} style={{ marginBottom: 4 }}>
