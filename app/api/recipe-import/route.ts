@@ -59,12 +59,13 @@ function clean(s: string) {
   return decodeOnce(decodeOnce(s))
     .replace(/<[^>]*>/g, " ")
     .replace(/\s+/g, " ")
+    .replace(/\s+([.,;:!?)])/g, "$1")
     .trim();
 }
 
-function isRecipeType(t: Json) {
+function isRecipeType(t: Json): boolean {
   if (typeof t === "string") return t === "Recipe" || t.endsWith("/Recipe");
-  return Array.isArray(t) && t.some((x) => isRecipeType(x));
+  return Array.isArray(t) && t.some((x): boolean => isRecipeType(x));
 }
 
 function findRecipe(node: Json, depth = 0): Obj | null {
