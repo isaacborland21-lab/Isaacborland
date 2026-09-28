@@ -1,9 +1,11 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
-// The sign-in page (and its nested Clerk routes, e.g. factor-two auth) is the
-// only route that doesn't require a signed-in session. Everything else
-// redirects to it.
-const isPublicRoute = createRouteMatcher(["/sign-in(.*)"]);
+// The sign-in page (and its nested Clerk routes, e.g. factor-two auth) is
+// the only route a human visits without a signed-in session — everything
+// else redirects to it. The Clerk webhook is a separate case: it's called
+// server-to-server by Clerk itself, with no browser session, and verifies
+// its own authenticity via a svix signature inside the route handler.
+const isPublicRoute = createRouteMatcher(["/sign-in(.*)", "/api/webhooks/clerk"]);
 
 export default clerkMiddleware((auth, req) => {
   if (!isPublicRoute(req)) {
