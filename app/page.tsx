@@ -682,6 +682,22 @@ export default function HomePage() {
               <span>{tab}</span>
             </button>
           ))}
+          {/* The room dashboard is its own full-screen page, not a tab. */}
+          <a href="/dashboard" className="tab" style={{ textDecoration: "none" }}>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.8}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="3" y="4" width="18" height="13" rx="2" />
+              <path d="M8 21h8M12 17v4" />
+            </svg>
+            <span>Dashboard</span>
+          </a>
         </nav>
 
         <div className="tab-content" key={active}>
