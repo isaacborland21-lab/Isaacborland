@@ -29,13 +29,23 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: "Bad request." }, { status: 400 });
   }
 
-  const target = await client.users.getUser(targetUserId);
+  let target;
+  try {
+    target = await client.users.getUser(targetUserId);
+  } catch {
+    return NextResponse.json({ error: "That user no longer exists." }, { status: 404 });
+  }
+
   const currentMetadata = target.publicMetadata as PublicMetadata;
   const nextTabAdmin = { ...(currentMetadata.tabAdmin ?? {}), [tab]: allowed };
 
-  await client.users.updateUserMetadata(targetUserId, {
-    publicMetadata: { ...currentMetadata, tabAdmin: nextTabAdmin },
-  });
+  try {
+    await client.users.updateUserMetadata(targetUserId, {
+      publicMetadata: { ...currentMetadata, tabAdmin: nextTabAdmin },
+    });
+  } catch {
+    return NextResponse.json({ error: "Failed to update permissions." }, { status: 500 });
+  }
 
   return NextResponse.json({ ok: true });
 }
