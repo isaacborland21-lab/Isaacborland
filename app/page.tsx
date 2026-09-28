@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { UserButton, useUser } from "@clerk/nextjs";
 import WeatherEffects, { WeatherInfo } from "./WeatherEffects";
+import FoodTab from "./FoodTab";
 
 const seasonLabels: Record<string, string> = {
   fall: "Fall theme",
@@ -11,7 +12,7 @@ const seasonLabels: Record<string, string> = {
   summer: "Summer theme",
 };
 
-const baseTabs = ["Home", "Projects", "About", "Contact"] as const;
+const baseTabs = ["Home", "Projects", "Food", "About", "Contact"] as const;
 type Tab = (typeof baseTabs)[number] | "Admin";
 
 const mono = "'IBM Plex Mono', monospace";
@@ -589,6 +590,7 @@ export default function HomePage() {
   const canEdit = (tab: keyof NonNullable<PublicMetadata["tabAdmin"]>) => isOwner || metadata.tabAdmin?.[tab] === true;
 
   const tabs: Tab[] = isOwner ? [...baseTabs, "Admin"] : [...baseTabs];
+  const usesContent = active !== "Food" && active !== "Admin";
 
   async function saveTab<K extends keyof TabContentData>(tab: K, next: TabContentData[K]) {
     const res = await fetch(`/api/content/${tab}`, {
@@ -690,6 +692,7 @@ export default function HomePage() {
             gap: 4,
             marginBottom: 20,
             borderBottom: "1px solid var(--surface-border)",
+            overflowX: "auto",
           }}
         >
           {tabs.map((tab) => {
@@ -705,6 +708,7 @@ export default function HomePage() {
                   padding: "10px 14px",
                   fontFamily: sans,
                   fontSize: 14,
+                  whiteSpace: "nowrap",
                   color: isActive ? "var(--accent)" : "var(--text-dim)",
                   borderBottom: isActive ? "2px solid var(--accent)" : "2px solid transparent",
                   marginBottom: -1,
@@ -716,12 +720,12 @@ export default function HomePage() {
           })}
         </nav>
 
-        {!content && !loadError && (
+        {usesContent && !content && !loadError && (
           <Card>
             <p style={{ fontFamily: sans, fontSize: 14, color: "var(--text-dim)", margin: 0 }}>Loading…</p>
           </Card>
         )}
-        {loadError && (
+        {usesContent && loadError && (
           <Card>
             <p style={errorStyle}>{loadError}</p>
           </Card>
@@ -733,6 +737,7 @@ export default function HomePage() {
         {content && active === "Projects" && (
           <ProjectsTab data={content.projects} editable={canEdit("projects")} onSave={(d) => saveTab("projects", d)} />
         )}
+        {active === "Food" && <FoodTab />}
         {content && active === "About" && (
           <AboutTab data={content.about} editable={canEdit("about")} onSave={(d) => saveTab("about", d)} />
         )}
