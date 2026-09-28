@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { UserButton, useUser } from "@clerk/nextjs";
 import WeatherEffects, { WeatherInfo } from "./WeatherEffects";
 import FoodTab, { FoodContent } from "./FoodTab";
+import ProjectsTab from "./ProjectsTab";
+import { normalizeProjects, Project } from "@/lib/projects";
 import AliveBackground from "./AliveBackground";
 import { DEFAULT_PLAN } from "./foodDefaults";
 
@@ -72,13 +74,12 @@ const errorStyle: React.CSSProperties = {
 };
 
 type HomeContent = { headline: string; body: string };
-type ProjectRow = { name: string; status: string };
 type AboutContent = { body: string };
 type ContactContent = { body: string; email: string };
 
 type TabContentData = {
   home: HomeContent;
-  projects: ProjectRow[];
+  projects: Project[];
   food: FoodContent;
   about: AboutContent;
   contact: ContactContent;
@@ -184,121 +185,6 @@ function HomeTab({
       <p style={{ fontFamily: sans, fontSize: 15, lineHeight: 1.6, color: "var(--text-dim)", margin: 0 }}>
         {data.body}
       </p>
-    </Card>
-  );
-}
-
-function ProjectsTab({
-  data,
-  editable,
-  onSave,
-}: {
-  data: ProjectRow[];
-  editable: boolean;
-  onSave: (next: ProjectRow[]) => Promise<void>;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [rows, setRows] = useState<ProjectRow[]>(data);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setRows(data);
-  }, [data]);
-
-  function updateRow(i: number, field: keyof ProjectRow, value: string) {
-    setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, [field]: value } : r)));
-  }
-
-  if (editing) {
-    return (
-      <Card>
-        {rows.map((row, i) => (
-          <div key={i} style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-            <input
-              value={row.name}
-              placeholder="Project name"
-              onChange={(e) => updateRow(i, "name", e.target.value)}
-              style={{ ...inputStyle, flex: 1 }}
-            />
-            <input
-              value={row.status}
-              placeholder="Status"
-              onChange={(e) => updateRow(i, "status", e.target.value)}
-              style={{ ...inputStyle, width: 140 }}
-            />
-            <button
-              onClick={() => setRows((prev) => prev.filter((_, idx) => idx !== i))}
-              style={{ ...cancelButtonStyle, padding: "8px 12px" }}
-              aria-label="Remove project"
-            >
-              ×
-            </button>
-          </div>
-        ))}
-        <button
-          onClick={() => setRows((prev) => [...prev, { name: "", status: "" }])}
-          style={{ ...editButtonStyle, marginTop: 4 }}
-        >
-          + Add project
-        </button>
-        {error && <p style={errorStyle}>{error}</p>}
-        <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-          <button
-            disabled={saving}
-            style={saveButtonStyle}
-            onClick={async () => {
-              setSaving(true);
-              setError(null);
-              try {
-                const cleaned = rows.filter((r) => r.name.trim().length > 0);
-                await onSave(cleaned);
-                setEditing(false);
-              } catch (e) {
-                setError((e as Error).message);
-              } finally {
-                setSaving(false);
-              }
-            }}
-          >
-            {saving ? "Saving…" : "Save"}
-          </button>
-          <button
-            style={cancelButtonStyle}
-            onClick={() => {
-              setRows(data);
-              setEditing(false);
-              setError(null);
-            }}
-          >
-            Cancel
-          </button>
-        </div>
-      </Card>
-    );
-  }
-
-  return (
-    <Card corner={editable && <button style={editButtonStyle} onClick={() => setEditing(true)}>Edit</button>}>
-      {data.length === 0 && (
-        <p style={{ fontFamily: sans, fontSize: 14, color: "var(--text-dim)", margin: 0 }}>No projects listed.</p>
-      )}
-      {data.map((p, i) => (
-        <div
-          key={`${p.name}-${i}`}
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            padding: "14px 0",
-            borderTop: i === 0 ? "none" : "1px solid var(--surface-border)",
-            fontFamily: sans,
-          }}
-        >
-          <span>{p.name}</span>
-          <span style={{ fontFamily: mono, fontSize: 12, color: "var(--text-dim)" }}>{p.status}</span>
-        </div>
-      ))}
     </Card>
   );
 }
@@ -817,7 +703,12 @@ export default function HomePage() {
             </div>
           )}
           {content && active === "Projects" && (
-            <ProjectsTab data={content.projects} editable={canEdit("projects")} onSave={(d) => saveTab("projects", d)} />
+            <ProjectsTab
+              projects={normalizeProjects(content.projects)}
+              editable={canEdit("projects")}
+              onSave={(d) => saveTab("projects", d)}
+              onReplaced={(raw) => setContent((prev) => (prev ? { ...prev, projects: normalizeProjects(raw) } : prev))}
+            />
           )}
           {content && active === "Food" && (
             <FoodTab data={food} editable={canEdit("food")} onSave={(d) => saveTab("food", d)} />

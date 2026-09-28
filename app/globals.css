@@ -463,6 +463,158 @@ textarea:focus-visible {
 }
 
 /* =========================================================
+   Projects tab
+   ========================================================= */
+
+.project-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 18px;
+}
+
+/* Cards are buttons (the whole card opens the project) */
+.project-card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 190px;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.25s ease;
+}
+
+.project-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(232, 112, 58, 0.45);
+  box-shadow:
+    0 30px 60px -24px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(232, 112, 58, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+.progress {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), #f2b35a);
+  box-shadow: 0 0 12px rgba(232, 112, 58, 0.55);
+  transition: width 0.6s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px 16px;
+}
+
+.form-grid label {
+  display: block;
+}
+
+.project-detail-grid,
+.suggest-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 20px;
+  align-items: start;
+}
+
+/* Viewers without edit access only see the timeline: let it fill the row */
+.project-detail-grid > .card:only-child {
+  grid-column: 1 / -1;
+}
+
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 18px;
+  border-left: 2px solid rgba(232, 112, 58, 0.3);
+}
+
+.timeline li {
+  position: relative;
+  padding: 0 0 18px 4px;
+}
+
+.timeline li::before {
+  content: "";
+  position: absolute;
+  left: -25px;
+  top: 3px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.link-chip {
+  display: inline-block;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 13px;
+  text-decoration: none;
+  border: 1px solid rgba(232, 112, 58, 0.4);
+  background: rgba(232, 112, 58, 0.1);
+  transition: background 0.2s ease;
+}
+
+.link-chip:hover {
+  background: rgba(232, 112, 58, 0.2);
+}
+
+.vote {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 46px;
+  height: 52px;
+  border-radius: 12px;
+  border: 1px solid var(--surface-border);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 13px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
+}
+
+.vote:hover {
+  color: var(--text);
+  border-color: rgba(232, 112, 58, 0.5);
+}
+
+.vote:active {
+  transform: scale(0.94);
+}
+
+.vote.voted {
+  color: #1a0f08;
+  background: var(--accent);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+@media (max-width: 980px) {
+  .project-detail-grid,
+  .suggest-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* =========================================================
    Mobile
    ========================================================= */
 
@@ -540,8 +692,24 @@ textarea:focus-visible {
   }
 
   .home-grid,
-  .meal-columns {
+  .meal-columns,
+  .project-detail-grid,
+  .suggest-grid,
+  .form-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .project-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .project-card {
+    min-height: 0;
+  }
+
+  .project-card:hover {
+    transform: none;
   }
 
   /* Lighter background on phones: smaller blur is much cheaper. */
