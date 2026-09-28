@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { UserButton } from "@clerk/nextjs";
 import WeatherEffects, { WeatherInfo } from "./WeatherEffects";
 
 const projects = [
@@ -166,17 +167,39 @@ export default function HomePage() {
             marginBottom: 28,
           }}
         >
-          <p
-            style={{
-              fontFamily: mono,
-              fontSize: 13,
-              letterSpacing: "0.02em",
-              color: "var(--text-dim)",
-              margin: 0,
-            }}
-          >
-            isaacborland.com
-          </p>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <UserButton
+              appearance={{
+                variables: {
+                  colorPrimary: "#e8703a",
+                  colorBackground: "var(--surface)",
+                  colorText: "var(--text)",
+                  colorTextSecondary: "var(--text-dim)",
+                  colorInputBackground: "var(--bg)",
+                  colorInputText: "var(--text)",
+                  fontFamily: sans,
+                },
+                elements: {
+                  avatarBox: { width: 26, height: 26 },
+                  userButtonPopoverCard: {
+                    border: "1px solid var(--surface-border)",
+                    boxShadow: "none",
+                  },
+                },
+              }}
+            />
+            <p
+              style={{
+                fontFamily: mono,
+                fontSize: 13,
+                letterSpacing: "0.02em",
+                color: "var(--text-dim)",
+                margin: 0,
+              }}
+            >
+              isaacborland.com
+            </p>
+          </div>
 
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
             <p
