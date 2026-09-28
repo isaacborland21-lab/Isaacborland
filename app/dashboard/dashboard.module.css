@@ -9,9 +9,22 @@
   min-height: 100dvh;
   overflow: hidden;
   transition: filter 3s ease;
+  cursor: default;
+  /* This is a kiosk display, not a page of text: no text cursor, no
+     selection highlight, no press-and-hold callout or double-tap zoom. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
-.idle {
+.root * {
+  cursor: default;
+}
+
+.idle,
+.idle * {
   cursor: none;
 }
 
