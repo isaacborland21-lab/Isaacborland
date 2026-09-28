@@ -27,6 +27,16 @@ export type PublicMetadata = {
   tabAdmin?: Partial<Record<ValidTab, boolean>>;
 };
 
+// Applied automatically to every new sign-up (see
+// app/api/webhooks/clerk/route.ts) so a brand-new, invite-only user can
+// immediately edit the lowest-stakes, most self-descriptive tabs without
+// the owner having to grant access by hand. Home and Projects are
+// deliberately left out — those stay owner-only until explicitly granted.
+export const DEFAULT_TAB_ADMIN: Partial<Record<ValidTab, boolean>> = {
+  about: true,
+  contact: true,
+};
+
 export function canEditTab(metadata: PublicMetadata | null | undefined, tab: ValidTab): boolean {
   if (!metadata) return false;
   if (metadata.owner === true) return true;
