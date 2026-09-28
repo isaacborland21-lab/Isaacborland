@@ -4,6 +4,12 @@ import { useEffect, useState } from "react";
 
 type WeatherKind = "clear" | "cloudy" | "rain" | "snow" | "thunder" | "fog" | null;
 
+export type WeatherInfo = {
+  kind: WeatherKind;
+  temp: number | null;
+  place: string | null;
+};
+
 // WMO weather codes, as returned by Open-Meteo.
 function kindFromCode(code: number): WeatherKind {
   if (code === 0 || code === 1) return "clear";
@@ -23,10 +29,18 @@ function kindFromCode(code: number): WeatherKind {
 // nothing that can leak a secret. Fails silently — if either API is
 // unreachable or rate-limited, the page just shows the seasonal theme with
 // no weather layer, never an error.
-export default function WeatherEffects() {
+//
+// This component only renders the fixed, full-viewport visual layer (which
+// takes no space in the page's normal flow, so it's safe to mount anywhere).
+// It reports what it found via `onWeatherChange` so the caller can place the
+// text label wherever fits the page's own layout, instead of this component
+// rendering its own flex/box-flow element.
+export default function WeatherEffects({
+  onWeatherChange,
+}: {
+  onWeatherChange?: (info: WeatherInfo) => void;
+}) {
   const [kind, setKind] = useState<WeatherKind>(null);
-  const [temp, setTemp] = useState<number | null>(null);
-  const [place, setPlace] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,11 +60,15 @@ export default function WeatherEffects() {
         const wx = await wxRes.json();
         if (cancelled) return;
 
-        setKind(kindFromCode(wx?.current?.weather_code));
-        if (typeof wx?.current?.temperature_2m === "number") {
-          setTemp(Math.round(wx.current.temperature_2m));
-        }
-        if (typeof city === "string") setPlace(city);
+        const resolvedKind = kindFromCode(wx?.current?.weather_code);
+        const temp =
+          typeof wx?.current?.temperature_2m === "number"
+            ? Math.round(wx.current.temperature_2m)
+            : null;
+        const place = typeof city === "string" ? city : null;
+
+        setKind(resolvedKind);
+        onWeatherChange?.({ kind: resolvedKind, temp, place });
       } catch {
         // Silently degrade — seasonal theme alone still works fine.
       }
@@ -60,79 +78,61 @@ export default function WeatherEffects() {
     return () => {
       cancelled = true;
     };
+    // Only ever fetch once per page load; onWeatherChange is a fresh
+    // function reference from the caller each render and isn't meant to
+    // re-trigger this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (!kind) return null;
 
   return (
-    <>
-      <div
-        aria-hidden="true"
-        style={{
-          position: "fixed",
-          inset: 0,
-          overflow: "hidden",
-          pointerEvents: "none",
-          zIndex: 0,
-        }}
-      >
-        {kind === "snow" &&
-          Array.from({ length: 50 }).map((_, i) => {
-            const size = 3 + Math.random() * 4;
-            return (
-              <span
-                key={i}
-                className="snowflake"
-                style={{
-                  left: `${Math.random() * 100}%`,
-                  width: size,
-                  height: size,
-                  animationDuration: `${8 + Math.random() * 8}s`,
-                  animationDelay: `${Math.random() * 8}s`,
-                }}
-              />
-            );
-          })}
-
-        {kind === "rain" &&
-          Array.from({ length: 70 }).map((_, i) => (
+    <div
+      aria-hidden="true"
+      style={{
+        position: "fixed",
+        inset: 0,
+        overflow: "hidden",
+        pointerEvents: "none",
+        zIndex: 0,
+      }}
+    >
+      {kind === "snow" &&
+        Array.from({ length: 50 }).map((_, i) => {
+          const size = 3 + Math.random() * 4;
+          return (
             <span
               key={i}
-              className="raindrop"
+              className="snowflake"
               style={{
                 left: `${Math.random() * 100}%`,
-                height: 14 + Math.random() * 18,
-                animationDuration: `${0.5 + Math.random() * 0.5}s`,
-                animationDelay: `${Math.random() * 2}s`,
+                width: size,
+                height: size,
+                animationDuration: `${8 + Math.random() * 8}s`,
+                animationDelay: `${Math.random() * 8}s`,
               }}
             />
-          ))}
+          );
+        })}
 
-        {kind === "clear" && <div className="sun-glow" />}
-        {(kind === "cloudy" || kind === "fog" || kind === "thunder") && (
-          <div className="cloud-veil" />
-        )}
-      </div>
+      {kind === "rain" &&
+        Array.from({ length: 70 }).map((_, i) => (
+          <span
+            key={i}
+            className="raindrop"
+            style={{
+              left: `${Math.random() * 100}%`,
+              height: 14 + Math.random() * 18,
+              animationDuration: `${0.5 + Math.random() * 0.5}s`,
+              animationDelay: `${Math.random() * 2}s`,
+            }}
+          />
+        ))}
 
-      {(temp !== null || place) && (
-        <p
-          style={{
-            position: "relative",
-            zIndex: 1,
-            fontFamily: "'IBM Plex Mono', monospace",
-            fontSize: 12,
-            color: "var(--text-dim)",
-            margin: "0 0 8px 0",
-          }}
-        >
-          {place ? `${place} · ` : ""}
-          {temp !== null ? `${temp}°F` : ""}
-          {kind === "snow" && " · snowing"}
-          {kind === "rain" && " · raining"}
-          {kind === "clear" && " · clear"}
-          {kind === "thunder" && " · storming"}
-        </p>
+      {kind === "clear" && <div className="sun-glow" />}
+      {(kind === "cloudy" || kind === "fog" || kind === "thunder") && (
+        <div className="cloud-veil" />
       )}
-    </>
+    </div>
   );
 }
