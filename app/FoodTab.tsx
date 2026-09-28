@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { BATCHES, Batch, DEFAULT_PLAN, MealPlanData, PlanMeal } from "./foodDefaults";
 import { buildGroceryList, groceryListToText } from "@/lib/grocery";
+import { buildRefreshedPlan, openSlots, splitCounts, RefreshMode, WebIdea } from "@/lib/planRefresh";
 
 const mono = "'IBM Plex Mono', monospace";
 const sans = "'IBM Plex Sans', sans-serif";
@@ -203,8 +204,13 @@ function MealEditForm({
           disabled={saving || name.trim().length === 0}
           onClick={() => {
             const next: PlanMeal = { day: meal.day, name: name.trim(), note: note.trim(), batch };
+            if (meal.locked) next.locked = true;
             if (linked) next.recipeId = linked.id;
-            else if (ingredients.trim()) next.ingredients = ingredients.trim();
+            else {
+              if (ingredients.trim()) next.ingredients = ingredients.trim();
+              if (meal.source) next.source = meal.source;
+              if (meal.steps) next.steps = meal.steps;
+            }
             onSave(next);
           }}
         >
@@ -326,23 +332,75 @@ function GroceryPanel({ plan, recipes, onClose }: { plan: MealPlanData; recipes:
 
 // ---------- Meal plan ----------
 
+const MODES: { value: RefreshMode; label: string; hint: string }[] = [
+  { value: "mix", label: "Mine + web", hint: "About half from your recipes, the rest new ideas from online" },
+  { value: "mine", label: "My recipes only", hint: "Shuffle your saved recipes into the week" },
+  { value: "web", label: "All new from web", hint: "Every open day gets a new recipe from online" },
+];
+
 function MealPlan({
   plan,
   recipes,
   editable,
   saving,
   onSavePlan,
+  onSaveRecipeFromSlot,
 }: {
   plan: MealPlanData;
   recipes: Recipe[];
   editable: boolean;
   saving: boolean;
   onSavePlan: (next: MealPlanData) => Promise<boolean>;
+  onSaveRecipeFromSlot: (kind: MealKind, index: number) => Promise<boolean>;
 }) {
   const [view, setView] = useState<MealKind>("lunch");
   const [editingDay, setEditingDay] = useState<string | null>(null);
   const [showGroceries, setShowGroceries] = useState(false);
-  const meals = plan[view];
+
+  // Refresh week
+  const [refreshOpen, setRefreshOpen] = useState(false);
+  const [kinds, setKinds] = useState<{ lunch: boolean; dinner: boolean }>({ lunch: true, dinner: true });
+  const [mode, setMode] = useState<RefreshMode>(recipes.length > 0 ? "mix" : "web");
+  const [busy, setBusy] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [draft, setDraft] = useState<{ plan: MealPlanData; notes: string[] } | null>(null);
+
+  const shown = draft ? draft.plan : plan;
+  const meals = shown[view];
+
+  async function runRefresh() {
+    const ks = (["lunch", "dinner"] as const).filter((k) => kinds[k]);
+    if (ks.length === 0) {
+      setRefreshError("Pick lunch, dinner, or both.");
+      return;
+    }
+    setBusy(true);
+    setRefreshError(null);
+    try {
+      const slots = openSlots(plan, ks);
+      const { nWeb } = splitCounts(slots.length, recipes.length, mode);
+      let web: WebIdea[] = [];
+      if (nWeb > 0) {
+        const res = await fetch("/api/meal-ideas", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ count: nWeb, exclude: [...plan.lunch, ...plan.dinner].map((m) => m.name) }),
+        });
+        const data = (await res.json().catch(() => ({}))) as { meals?: WebIdea[]; error?: string };
+        if (!res.ok) throw new Error(data.error || "Couldn't fetch new recipes.");
+        web = data.meals ?? [];
+      }
+      setDraft(buildRefreshedPlan(plan, ks, mode, recipes, web));
+      setEditingDay(null);
+      setRefreshOpen(false);
+    } catch (e) {
+      setRefreshError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const lockedCount = [...plan.lunch, ...plan.dinner].filter((m) => m.locked).length;
 
   return (
     <>
@@ -363,15 +421,106 @@ function MealPlan({
             }}
           />
         ))}
-        <button style={{ ...ghostBtn, marginLeft: "auto", padding: "6px 12px" }} onClick={() => setShowGroceries((s) => !s)}>
-          {showGroceries ? "Hide grocery list" : "Export grocery list"}
-        </button>
+        <span style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {editable && !draft && (
+            <button style={{ ...ghostBtn, padding: "6px 12px" }} onClick={() => setRefreshOpen((o) => !o)}>
+              ↻ Refresh week
+            </button>
+          )}
+          <button style={{ ...ghostBtn, padding: "6px 12px" }} onClick={() => setShowGroceries((s) => !s)}>
+            {showGroceries ? "Hide grocery list" : "Export grocery list"}
+          </button>
+        </span>
       </div>
 
-      {showGroceries && <GroceryPanel plan={plan} recipes={recipes} onClose={() => setShowGroceries(false)} />}
+      {refreshOpen && !draft && (
+        <div style={{ border: "1px solid var(--accent)", borderRadius: 6, padding: 16, marginBottom: 16 }}>
+          <p style={{ fontFamily: mono, fontSize: 14, fontWeight: 600, margin: "0 0 10px 0" }}>Refresh week</p>
+
+          <p style={labelStyle}>Which meals</p>
+          <div style={{ display: "flex", gap: 16, marginBottom: 12 }}>
+            {(["lunch", "dinner"] as const).map((k) => (
+              <label key={k} style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: sans, fontSize: 13, color: "var(--text-dim)" }}>
+                <input type="checkbox" checked={kinds[k]} onChange={(e) => setKinds((prev) => ({ ...prev, [k]: e.target.checked }))} />
+                {k === "lunch" ? "Lunches" : "Dinners"}
+              </label>
+            ))}
+          </div>
+
+          <p style={labelStyle}>Where recipes come from</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+            {MODES.map((m) => {
+              const disabled = m.value === "mine" && recipes.length === 0;
+              return (
+                <label
+                  key={m.value}
+                  style={{ display: "flex", alignItems: "flex-start", gap: 8, fontFamily: sans, fontSize: 13, color: disabled ? "var(--surface-border)" : "var(--text)" }}
+                >
+                  <input type="radio" name="refresh-mode" checked={mode === m.value} disabled={disabled} onChange={() => setMode(m.value)} style={{ marginTop: 3 }} />
+                  <span>
+                    {m.label}
+                    <span style={{ display: "block", fontSize: 12, color: "var(--text-dim)" }}>
+                      {disabled ? "Save some recipes first" : m.hint}
+                    </span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+
+          <p style={{ ...dimText, fontSize: 12, marginBottom: 12 }}>
+            {lockedCount > 0
+              ? `${lockedCount} locked day${lockedCount === 1 ? "" : "s"} will be kept. `
+              : "Tip: lock any day you want to keep before refreshing. "}
+            You&rsquo;ll see a preview before anything is saved.
+          </p>
+
+          <div style={{ display: "flex", gap: 8 }}>
+            <button style={primaryBtn} disabled={busy} onClick={runRefresh}>
+              {busy ? "Finding recipes…" : "Build new week"}
+            </button>
+            <button style={ghostBtn} onClick={() => setRefreshOpen(false)}>
+              Cancel
+            </button>
+          </div>
+          {refreshError && <p style={errorStyle}>{refreshError}</p>}
+        </div>
+      )}
+
+      {draft && (
+        <div style={{ border: "1px solid #8fbf7f", borderRadius: 6, padding: 14, marginBottom: 16 }}>
+          <p style={{ fontFamily: mono, fontSize: 13, fontWeight: 600, margin: "0 0 4px 0", color: "#8fbf7f" }}>Preview · not saved yet</p>
+          <p style={{ ...dimText, fontSize: 12 }}>Check lunch and dinner, then save it or shuffle again.</p>
+          {draft.notes.map((n) => (
+            <p key={n} style={{ ...dimText, fontSize: 12, color: "#e8b86a", marginTop: 6 }}>
+              {n}
+            </p>
+          ))}
+          <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+            <button
+              style={primaryBtn}
+              disabled={saving || busy}
+              onClick={async () => {
+                if (await onSavePlan(draft.plan)) setDraft(null);
+              }}
+            >
+              {saving ? "Saving…" : "Save this week"}
+            </button>
+            <button style={ghostBtn} disabled={busy || saving} onClick={runRefresh}>
+              {busy ? "Shuffling…" : "Shuffle again"}
+            </button>
+            <button style={ghostBtn} disabled={busy || saving} onClick={() => setDraft(null)}>
+              Discard
+            </button>
+          </div>
+          {refreshError && <p style={errorStyle}>{refreshError}</p>}
+        </div>
+      )}
+
+      {showGroceries && <GroceryPanel plan={shown} recipes={recipes} onClose={() => setShowGroceries(false)} />}
 
       {meals.map((m, i) =>
-        editingDay === m.day ? (
+        editingDay === m.day && !draft ? (
           <MealEditForm
             key={m.day}
             meal={m}
@@ -391,15 +540,29 @@ function MealPlan({
             <span style={{ fontFamily: mono, fontSize: 12, color: "var(--accent)", width: 32, flexShrink: 0, paddingTop: 2 }}>{m.day}</span>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "baseline" }}>
-                <span style={{ fontFamily: sans, fontSize: 15, fontWeight: 600 }}>{m.name}</span>
+                <span style={{ fontFamily: sans, fontSize: 15, fontWeight: 600 }}>
+                  {m.locked && <span title="Locked: refresh keeps this day">🔒 </span>}
+                  {m.name}
+                </span>
                 <span style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
                   <span style={{ fontFamily: mono, fontSize: 10, color: batchColor[m.batch], textTransform: "uppercase", letterSpacing: "0.04em" }}>
                     {m.batch}
                   </span>
-                  {editable && (
-                    <button style={linkBtn} onClick={() => setEditingDay(m.day)}>
-                      Edit
-                    </button>
+                  {editable && !draft && (
+                    <>
+                      <button
+                        style={{ ...linkBtn, color: m.locked ? "var(--accent)" : "var(--text-dim)" }}
+                        disabled={saving}
+                        onClick={() =>
+                          onSavePlan({ ...plan, [view]: plan[view].map((x, j) => (j === i ? { ...x, locked: !x.locked } : x)) })
+                        }
+                      >
+                        {m.locked ? "Unlock" : "Lock"}
+                      </button>
+                      <button style={linkBtn} onClick={() => setEditingDay(m.day)}>
+                        Edit
+                      </button>
+                    </>
                   )}
                 </span>
               </div>
@@ -407,12 +570,24 @@ function MealPlan({
               {m.recipeId && recipes.some((r) => r.id === m.recipeId) && (
                 <p style={{ fontFamily: mono, fontSize: 11, color: "var(--text-dim)", margin: "4px 0 0 0" }}>↳ from your saved recipes</p>
               )}
+              {m.source && !m.recipeId && (
+                <p style={{ fontFamily: mono, fontSize: 11, margin: "4px 0 0 0", display: "flex", gap: 12, flexWrap: "wrap" }}>
+                  <a href={m.source} target="_blank" rel="noopener noreferrer">
+                    View recipe ↗
+                  </a>
+                  {editable && !draft && (
+                    <button style={{ ...linkBtn, fontSize: 11 }} disabled={saving} onClick={() => onSaveRecipeFromSlot(view, i)}>
+                      + Save to my recipes
+                    </button>
+                  )}
+                </p>
+              )}
             </div>
           </div>
         )
       )}
 
-      {editable && (
+      {editable && !draft && (
         <button
           style={{ ...linkBtn, marginTop: 14, color: "var(--text-dim)" }}
           onClick={() => {
@@ -810,6 +985,12 @@ export default function FoodTab({
           editable={editable}
           saving={saving}
           onSavePlan={(nextPlan) => persist({ ...local, plan: nextPlan })}
+          onSaveRecipeFromSlot={(kind, index) => {
+            const m = plan[kind][index];
+            const r: Recipe = { id: newId(), name: m.name, ingredients: m.ingredients ?? "", steps: m.steps ?? "", ...(m.source ? { source: m.source } : {}) };
+            const nextPlan = { ...plan, [kind]: plan[kind].map((x, j) => (j === index ? { ...x, recipeId: r.id } : x)) };
+            return persist({ ...local, recipes: [r, ...local.recipes], plan: nextPlan });
+          }}
         />
       )}
       {section === "Recipes" && (

@@ -11,6 +11,9 @@ export type PlanMeal = {
   batch: Batch;
   recipeId?: string; // linked saved recipe; its ingredients feed the grocery list
   ingredients?: string; // one per line; used when no recipe is linked
+  steps?: string; // one per line; kept for meals pulled from the web
+  source?: string; // link to the original recipe (web meals)
+  locked?: boolean; // "Refresh week" leaves locked days alone
 };
 
 export type MealPlanData = { lunch: PlanMeal[]; dinner: PlanMeal[] };
