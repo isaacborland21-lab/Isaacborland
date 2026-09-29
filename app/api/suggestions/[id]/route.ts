@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { currentUser, SuggestionRow, toView, UUID_RE } from "@/lib/suggestions";
-import { newId, normalizeProjects, Project, todayISO } from "@/lib/projects";
+import { newId, normalizeProjects, Project, projectId, todayISO } from "@/lib/projects";
 
 // PATCH  /api/suggestions/:id  { action: "vote" | "accept" | "decline" | "reopen" }
 //   vote     -> any signed-in user toggles their upvote
@@ -68,7 +68,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
     const projects = normalizeProjects(tab?.content ?? []);
     const project: Project = {
-      id: newId(),
+      id: projectId(row.title),
       name: row.title,
       status: "idea",
       summary: row.details.split("\n")[0].slice(0, 200),

@@ -25,6 +25,14 @@ export function newId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+// Readable, link-friendly id for a new project: "gmail-cleanup-k3f9".
+// The short random tail keeps it unique if two projects share a name.
+// The id never changes after creation, so renaming a project keeps its link.
+export function projectId(name: string) {
+  const tail = Math.random().toString(36).slice(2, 6).padEnd(4, "0");
+  return `${slug(name) || "project"}-${tail}`;
+}
+
 function str(v: unknown, fallback = ""): string {
   return typeof v === "string" ? v : fallback;
 }

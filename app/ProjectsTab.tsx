@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { newId, Project, PROJECT_STATUSES, ProjectLink, safeUrl, todayISO } from "@/lib/projects";
+import { newId, Project, projectId, PROJECT_STATUSES, ProjectLink, safeUrl, todayISO } from "@/lib/projects";
+import { absoluteUrl, hrefFor } from "@/lib/urlState";
 
 const mono = "'IBM Plex Mono', monospace";
 const sans = "'IBM Plex Sans', sans-serif";
@@ -255,6 +256,7 @@ function ProjectPage({
   onDelete: () => Promise<boolean>;
 }) {
   const [editing, setEditing] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [updateText, setUpdateText] = useState("");
   const [updateDate, setUpdateDate] = useState(todayISO());
   const [updateProgress, setUpdateProgress] = useState(project.progress);
@@ -267,6 +269,19 @@ function ProjectPage({
 
   const statuses = PROJECT_STATUSES.includes(project.status) ? PROJECT_STATUSES : [project.status, ...PROJECT_STATUSES];
   const lastUpdate = project.updates[0];
+
+  async function copyLink() {
+    const url = absoluteUrl({ tab: "projects", project: project.id });
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      // Clipboard blocked (older browsers / some in-app browsers): show it instead.
+      window.prompt("Copy this link:", url);
+      return;
+    }
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1800);
+  }
 
   async function postUpdate() {
     const text = updateText.trim();
@@ -309,11 +324,16 @@ function ProjectPage({
                 {project.suggestedBy && <span style={{ ...dimText, fontSize: 12 }}>· Suggested by {project.suggestedBy}</span>}
               </div>
             </div>
-            {editable && (
-              <button style={ghostBtn} onClick={() => setEditing(true)}>
-                Edit details
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button style={ghostBtn} onClick={copyLink}>
+                {copied ? "Link copied!" : "Copy link"}
               </button>
-            )}
+              {editable && (
+                <button style={ghostBtn} onClick={() => setEditing(true)}>
+                  Edit details
+                </button>
+              )}
+            </div>
           </div>
 
           <div style={{ marginTop: 20 }}>
@@ -654,20 +674,23 @@ function Suggestions({
 export default function ProjectsTab({
   projects,
   editable,
+  openId,
+  onOpen,
   onSave,
   onReplaced,
 }: {
   projects: Project[];
   editable: boolean;
+  openId: string | null; // comes from the address bar
+  onOpen: (id: string | null, mode?: "push" | "replace") => void;
   onSave: (next: Project[]) => Promise<void>;
   onReplaced: (raw: unknown) => void;
 }) {
-  const [openId, setOpenId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const open = projects.find((p) => p.id === openId) ?? null;
+  const open = openId ? projects.find((p) => p.id === openId) ?? null : null;
 
   useEffect(() => {
     if (openId || creating) window.scrollTo({ top: 0, behavior: "smooth" });
@@ -687,6 +710,18 @@ export default function ProjectsTab({
     }
   }
 
+  if (openId && !open) {
+    return (
+      <div className="card">
+        <p style={{ ...sectionTitle, marginBottom: 8 }}>Project not found</p>
+        <p style={dimText}>It may have been deleted, or the link is incomplete.</p>
+        <button style={{ ...primaryBtn, marginTop: 16 }} onClick={() => onOpen(null, "replace")}>
+          See all projects
+        </button>
+      </div>
+    );
+  }
+
   if (open) {
     return (
       <>
@@ -694,11 +729,12 @@ export default function ProjectsTab({
           project={open}
           editable={editable}
           saving={saving}
-          onBack={() => setOpenId(null)}
+          onBack={() => onOpen(null)}
           onChange={(next) => persist(projects.map((p) => (p.id === next.id ? next : p)))}
           onDelete={async () => {
             const ok = await persist(projects.filter((p) => p.id !== open.id));
-            if (ok) setOpenId(null);
+            // Replace, so the back button can't land on the deleted project.
+            if (ok) onOpen(null, "replace");
             return ok;
           }}
         />
@@ -722,15 +758,15 @@ export default function ProjectsTab({
 
       {creating && (
         <ProjectForm
-          initial={{ id: newId(), name: "", status: "idea", summary: "", description: "", progress: 0, links: [], updates: [], createdAt: new Date().toISOString() }}
+          initial={{ id: "", name: "", status: "idea", summary: "", description: "", progress: 0, links: [], updates: [], createdAt: new Date().toISOString() }}
           saving={saving}
           submitLabel="Create project"
           onCancel={() => setCreating(false)}
           onSubmit={async (p) => {
-            const withFirst = { ...p, updates: [{ id: newId(), date: todayISO(), text: "Project created." }] };
+            const withFirst = { ...p, id: projectId(p.name), updates: [{ id: newId(), date: todayISO(), text: "Project created." }] };
             if (await persist([withFirst, ...projects])) {
               setCreating(false);
-              setOpenId(withFirst.id);
+              onOpen(withFirst.id);
             }
           }}
         />
@@ -746,7 +782,17 @@ export default function ProjectsTab({
         {projects.map((p) => {
           const last = p.updates[0];
           return (
-            <button key={p.id} className="card project-card" onClick={() => setOpenId(p.id)}>
+            <a
+              key={p.id}
+              href={hrefFor({ tab: "projects", project: p.id })}
+              className="card project-card"
+              onClick={(e) => {
+                // Let Ctrl/Cmd/Shift/middle-click open a new tab as usual.
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                e.preventDefault();
+                onOpen(p.id);
+              }}
+            >
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
                 <span style={{ fontFamily: mono, fontSize: 18, fontWeight: 600, lineHeight: 1.25, textAlign: "left" }}>{p.name}</span>
                 <StatusBadge status={p.status} />
@@ -761,18 +807,18 @@ export default function ProjectsTab({
                   </span>
                 </div>
               </div>
-            </button>
+            </a>
           );
         })}
       </div>
       {error && <p style={errorStyle}>{error}</p>}
 
       <Suggestions
-        onAccepted={(raw, projectId) => {
+        onAccepted={(raw, id) => {
           onReplaced(raw);
-          setOpenId(projectId);
+          onOpen(id);
         }}
-        onOpenProject={(id) => setOpenId(id)}
+        onOpenProject={(id) => onOpen(id)}
       />
     </>
   );

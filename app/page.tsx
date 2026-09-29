@@ -6,6 +6,7 @@ import WeatherEffects, { WeatherInfo } from "./WeatherEffects";
 import FoodTab, { FoodContent } from "./FoodTab";
 import ProjectsTab from "./ProjectsTab";
 import { normalizeProjects, Project } from "@/lib/projects";
+import { readUrl, writeUrl } from "@/lib/urlState";
 import AliveBackground from "./AliveBackground";
 import { DEFAULT_PLAN } from "./foodDefaults";
 
@@ -566,8 +567,30 @@ function greetingFor(hour: number) {
 }
 
 export default function HomePage() {
-  const { user } = useUser();
+  const { user, isLoaded } = useUser();
   const [active, setActive] = useState<Tab>("Home");
+  const [openProject, setOpenProject] = useState<string | null>(null);
+
+  // The address bar is the source of truth for which tab/project is open,
+  // so back/forward work and any view can be linked to. Read it after mount
+  // (not during render) so server and browser HTML match.
+  useEffect(() => {
+    const sync = () => {
+      const { tab, project } = readUrl();
+      const match = ([...baseTabs, "Admin"] as Tab[]).find((t) => t.toLowerCase() === tab);
+      setActive(match ?? "Home");
+      setOpenProject(match === "Projects" ? project : null);
+    };
+    sync();
+    window.addEventListener("popstate", sync);
+    return () => window.removeEventListener("popstate", sync);
+  }, []);
+
+  function navigate(tab: Tab, project: string | null = null, mode: "push" | "replace" = "push") {
+    setActive(tab);
+    setOpenProject(tab === "Projects" ? project : null);
+    writeUrl({ tab, project }, mode);
+  }
   const [season, setSeason] = useState<string>("");
   const [weather, setWeather] = useState<WeatherInfo | null>(null);
   const [content, setContent] = useState<TabContentData | null>(null);
@@ -598,6 +621,19 @@ export default function HomePage() {
 
   const tabs: Tab[] = isOwner ? [...baseTabs, "Admin"] : [...baseTabs];
   const usesContent = active !== "Admin";
+
+  // A shared ?tab=admin link does nothing for non-owners: send them Home.
+  useEffect(() => {
+    if (isLoaded && active === "Admin" && !isOwner) navigate("Home", null, "replace");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoaded, active, isOwner]);
+
+  // Browser tab title follows what's open ("Gmail cleanup · Isaac Borland").
+  useEffect(() => {
+    const projectName =
+      active === "Projects" && openProject ? normalizeProjects(content?.projects).find((p) => p.id === openProject)?.name : null;
+    document.title = projectName ? `${projectName} · Isaac Borland` : active === "Home" ? "Isaac Borland" : `${active} · Isaac Borland`;
+  }, [active, openProject, content]);
   const food: FoodContent = { ...emptyFood, ...(content?.food ?? {}) };
 
   async function saveTab<K extends keyof TabContentData>(tab: K, next: TabContentData[K]) {
@@ -674,7 +710,7 @@ export default function HomePage() {
               className={tab === active ? "tab active" : "tab"}
               aria-current={tab === active ? "page" : undefined}
               onClick={() => {
-                setActive(tab);
+                navigate(tab);
                 window.scrollTo({ top: 0, behavior: "smooth" });
               }}
             >
@@ -715,13 +751,15 @@ export default function HomePage() {
           {content && active === "Home" && (
             <div className="home-grid">
               <HomeTab data={content.home} editable={canEdit("home")} onSave={(d) => saveTab("home", d)} />
-              <TodayCard food={food} onOpenFood={() => setActive("Food")} />
+              <TodayCard food={food} onOpenFood={() => navigate("Food")} />
             </div>
           )}
           {content && active === "Projects" && (
             <ProjectsTab
               projects={normalizeProjects(content.projects)}
               editable={canEdit("projects")}
+              openId={openProject}
+              onOpen={(id, mode) => navigate("Projects", id, mode)}
               onSave={(d) => saveTab("projects", d)}
               onReplaced={(raw) => setContent((prev) => (prev ? { ...prev, projects: normalizeProjects(raw) } : prev))}
             />
