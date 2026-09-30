@@ -88,6 +88,17 @@ type TabContentData = {
 
 type EditableTab = "home" | "projects" | "food" | "about" | "contact";
 
+// Which nav tab corresponds to each permission key, in display order —
+// used to build the visible tab list for a given identity (real or
+// previewed): a tab only shows up in nav if that identity can edit it.
+const tabLabelForKey: Record<EditableTab, Tab> = {
+  home: "Home",
+  projects: "Projects",
+  food: "Food",
+  about: "About",
+  contact: "Contact",
+};
+
 type PublicMetadata = {
   owner?: boolean;
   tabAdmin?: Partial<Record<EditableTab, boolean>>;
@@ -723,16 +734,32 @@ export default function HomePage() {
   const isOwner = effectiveMetadata.owner === true;
   const canEdit = (tab: EditableTab) => isOwner || effectiveMetadata.tabAdmin?.[tab] === true;
 
-  const tabs: Tab[] = isOwner ? [...baseTabs, "Admin"] : [...baseTabs];
+  // A non-owner (real or previewed) only gets the tabs they can actually
+  // edit — a tab with no grant doesn't just lose its Edit button, it
+  // disappears from nav entirely, matching what that account truly sees.
+  const visibleBaseTabs: Tab[] = isOwner
+    ? [...baseTabs]
+    : editableTabKeys.filter((key) => canEdit(key)).map((key) => tabLabelForKey[key]);
+  const tabs: Tab[] = isOwner ? [...visibleBaseTabs, "Admin"] : visibleBaseTabs;
   const usesContent = active !== "Admin";
 
-  // A shared ?tab=admin link does nothing for non-owners: send them Home.
-  // Gated on realIsOwner (not the preview) so this never fires just because
+  // Keep the active tab in sync with what's actually visible: a shared
+  // ?tab=admin link does nothing for non-owners (send them Home), and
+  // nobody can stay on a tab they've lost access to — whether from a role
+  // change, entering/exiting preview, or a stale link. Gated on realIsOwner
+  // for the Admin case (not the preview) so this never fires just because
   // the owner is previewing a non-owner role while still on the Admin tab.
   useEffect(() => {
-    if (isLoaded && active === "Admin" && !realIsOwner) navigate("Home", null, "replace");
+    if (!isLoaded) return;
+    if (active === "Admin") {
+      if (!realIsOwner) navigate("Home", null, "replace");
+      return;
+    }
+    if (!visibleBaseTabs.includes(active) && visibleBaseTabs.length > 0) {
+      navigate(visibleBaseTabs[0], null, "replace");
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoaded, active, realIsOwner]);
+  }, [isLoaded, active, realIsOwner, visibleBaseTabs.join("|")]);
 
   // Browser tab title follows what's open ("Gmail cleanup · Isaac Borland").
   useEffect(() => {
@@ -893,13 +920,21 @@ export default function HomePage() {
             </Card>
           )}
 
-          {content && active === "Home" && (
+          {usesContent && content && visibleBaseTabs.length === 0 && (
+            <Card>
+              <p style={{ fontFamily: sans, fontSize: 14, color: "var(--text-dim)", margin: 0 }}>
+                No tabs are available for this account yet.
+              </p>
+            </Card>
+          )}
+
+          {content && active === "Home" && canEdit("home") && (
             <div className="home-grid">
               <HomeTab data={content.home} editable={canEdit("home")} onSave={(d) => saveTab("home", d)} />
               <TodayCard food={food} onOpenFood={() => navigate("Food")} />
             </div>
           )}
-          {content && active === "Projects" && (
+          {content && active === "Projects" && canEdit("projects") && (
             <ProjectsTab
               projects={normalizeProjects(content.projects)}
               editable={canEdit("projects")}
@@ -909,13 +944,13 @@ export default function HomePage() {
               onReplaced={(raw) => setContent((prev) => (prev ? { ...prev, projects: normalizeProjects(raw) } : prev))}
             />
           )}
-          {content && active === "Food" && (
+          {content && active === "Food" && canEdit("food") && (
             <FoodTab data={food} editable={canEdit("food")} onSave={(d) => saveTab("food", d)} />
           )}
-          {content && active === "About" && (
+          {content && active === "About" && canEdit("about") && (
             <AboutTab data={content.about} editable={canEdit("about")} onSave={(d) => saveTab("about", d)} />
           )}
-          {content && active === "Contact" && (
+          {content && active === "Contact" && canEdit("contact") && (
             <ContactTab data={content.contact} editable={canEdit("contact")} onSave={(d) => saveTab("contact", d)} />
           )}
           {active === "Admin" && realIsOwner && <AdminTab preview={preview} onPreview={setPreview} />}
