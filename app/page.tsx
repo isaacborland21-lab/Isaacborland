@@ -101,6 +101,26 @@ type AdminUser = {
   tabAdmin: Partial<Record<EditableTab, boolean>>;
 };
 
+// What the Admin tab's "View as" selector lets the owner preview: either a
+// real user's actual metadata, or one of the built-in presets below. The
+// rest of the page renders exactly as it would for someone with this
+// metadata — same visible tabs, same edit buttons — without touching the
+// owner's own Clerk session or anyone else's permissions.
+type PreviewTarget = {
+  id: string;
+  label: string;
+  metadata: PublicMetadata;
+};
+
+// Mirrors DEFAULT_TAB_ADMIN in lib/supabaseAdmin.ts (what a brand-new
+// sign-up actually gets via the Clerk webhook). Kept as a separate literal
+// because that file is server-only and must never reach the client bundle.
+// If you change one, change the other.
+const DEFAULT_NEW_USER_TAB_ADMIN: Partial<Record<EditableTab, boolean>> = {
+  about: true,
+  contact: true,
+};
+
 const emptyFood: FoodContent = { recipes: [], todos: [] };
 
 function Card({ children, corner }: { children: React.ReactNode; corner?: React.ReactNode }) {
@@ -332,7 +352,13 @@ function ContactTab({
 
 const editableTabKeys = ["home", "projects", "food", "about", "contact"] as const;
 
-function AdminTab() {
+function AdminTab({
+  preview,
+  onPreview,
+}: {
+  preview: PreviewTarget | null;
+  onPreview: (target: PreviewTarget | null) => void;
+}) {
   const [users, setUsers] = useState<AdminUser[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
@@ -376,6 +402,41 @@ function AdminTab() {
     }
   }
 
+  // Presets cover cases with no real user to point at yet: what a brand-new
+  // sign-up gets automatically, and the floor for someone granted nothing.
+  const presets: PreviewTarget[] = [
+    {
+      id: "__default__",
+      label: "a new sign-up (default access)",
+      metadata: { owner: false, tabAdmin: DEFAULT_NEW_USER_TAB_ADMIN },
+    },
+    {
+      id: "__none__",
+      label: "a user with no tabs granted",
+      metadata: { owner: false, tabAdmin: {} },
+    },
+  ];
+
+  function handleSelect(id: string) {
+    if (id === "__self__") {
+      onPreview(null);
+      return;
+    }
+    const preset = presets.find((p) => p.id === id);
+    if (preset) {
+      onPreview(preset);
+      return;
+    }
+    const target = users?.find((u) => u.id === id);
+    if (target) {
+      onPreview({
+        id: target.id,
+        label: target.firstName || target.email,
+        metadata: { owner: target.owner, tabAdmin: target.tabAdmin },
+      });
+    }
+  }
+
   if (error) {
     return (
       <Card>
@@ -394,7 +455,39 @@ function AdminTab() {
 
   return (
     <Card>
-      <p style={{ fontFamily: sans, fontSize: 13, color: "var(--text-dim)", margin: "0 0 16px 0" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
+        <div>
+          <p style={{ fontFamily: mono, fontSize: 11, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 6px 0" }}>
+            View as
+          </p>
+          <select
+            value={preview?.id ?? "__self__"}
+            onChange={(e) => handleSelect(e.target.value)}
+            style={{ ...inputStyle, width: "auto", minWidth: 240 }}
+          >
+            <option value="__self__">Yourself (Owner)</option>
+            <option value="__default__">New sign-up (default access)</option>
+            <option value="__none__">No tabs granted</option>
+            {users
+              .filter((u) => !u.owner)
+              .map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.firstName || u.email}
+                </option>
+              ))}
+          </select>
+          <p style={{ fontFamily: sans, fontSize: 12, color: "var(--text-dim)", margin: "6px 0 0 0", maxWidth: 420 }}>
+            Swaps the tabs and edit buttons you see across the whole site for that role's, so you can check what they actually get. It doesn't touch anyone's real permissions.
+          </p>
+        </div>
+        {preview && (
+          <button onClick={() => onPreview(null)} style={cancelButtonStyle}>
+            Exit preview
+          </button>
+        )}
+      </div>
+
+      <p style={{ fontFamily: sans, fontSize: 13, color: "var(--text-dim)", margin: "0 0 16px 0", borderTop: "1px solid var(--surface-border)", paddingTop: 16 }}>
         Grant or revoke edit access to each tab, per user.
       </p>
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -570,6 +663,7 @@ export default function HomePage() {
   const { user, isLoaded } = useUser();
   const [active, setActive] = useState<Tab>("Home");
   const [openProject, setOpenProject] = useState<string | null>(null);
+  const [preview, setPreview] = useState<PreviewTarget | null>(null);
 
   // The address bar is the source of truth for which tab/project is open,
   // so back/forward work and any view can be linked to. Read it after mount
@@ -616,17 +710,29 @@ export default function HomePage() {
   }, []);
 
   const metadata = (user?.publicMetadata ?? {}) as PublicMetadata;
-  const isOwner = metadata.owner === true;
-  const canEdit = (tab: EditableTab) => isOwner || metadata.tabAdmin?.[tab] === true;
+
+  // realIsOwner is the actual signed-in user's own permission — it never
+  // changes while previewing, so the owner can always get back to the
+  // Admin tab (via the "Exit preview" banner) no matter which role they're
+  // currently looking at. Everything else below — isOwner, canEdit, the
+  // visible tab list — uses the *effective* metadata, which is the preview
+  // target's metadata when previewing, or the owner's own otherwise. That's
+  // what makes the rest of the page render exactly as that role would see it.
+  const realIsOwner = metadata.owner === true;
+  const effectiveMetadata = preview ? preview.metadata : metadata;
+  const isOwner = effectiveMetadata.owner === true;
+  const canEdit = (tab: EditableTab) => isOwner || effectiveMetadata.tabAdmin?.[tab] === true;
 
   const tabs: Tab[] = isOwner ? [...baseTabs, "Admin"] : [...baseTabs];
   const usesContent = active !== "Admin";
 
   // A shared ?tab=admin link does nothing for non-owners: send them Home.
+  // Gated on realIsOwner (not the preview) so this never fires just because
+  // the owner is previewing a non-owner role while still on the Admin tab.
   useEffect(() => {
-    if (isLoaded && active === "Admin" && !isOwner) navigate("Home", null, "replace");
+    if (isLoaded && active === "Admin" && !realIsOwner) navigate("Home", null, "replace");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoaded, active, isOwner]);
+  }, [isLoaded, active, realIsOwner]);
 
   // Browser tab title follows what's open ("Gmail cleanup · Isaac Borland").
   useEffect(() => {
@@ -657,6 +763,45 @@ export default function HomePage() {
       <WeatherEffects onWeatherChange={setWeather} />
 
       <main className="shell">
+        {preview && (
+          <div
+            style={{
+              position: "sticky",
+              top: 0,
+              zIndex: 40,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              flexWrap: "wrap",
+              background: "var(--accent)",
+              color: "#1a0f08",
+              padding: "10px 16px",
+              borderRadius: 6,
+              marginBottom: 16,
+              fontFamily: sans,
+              fontSize: 13,
+            }}
+          >
+            <span>
+              <strong>Previewing as {preview.label}.</strong> Tabs and edit buttons now match exactly what they'd see. Anything you actually save while previewing still saves for real, under your own account.
+            </span>
+            <button
+              onClick={() => setPreview(null)}
+              style={{
+                ...buttonBase,
+                background: "#1a0f08",
+                color: "var(--accent)",
+                border: "none",
+                fontWeight: 600,
+                flexShrink: 0,
+              }}
+            >
+              Exit preview
+            </button>
+          </div>
+        )}
+
         <header className="topbar">
           <div style={{ minWidth: 0 }}>
             <div className="brand">
@@ -773,7 +918,7 @@ export default function HomePage() {
           {content && active === "Contact" && (
             <ContactTab data={content.contact} editable={canEdit("contact")} onSave={(d) => saveTab("contact", d)} />
           )}
-          {active === "Admin" && isOwner && <AdminTab />}
+          {active === "Admin" && realIsOwner && <AdminTab preview={preview} onPreview={setPreview} />}
         </div>
       </main>
     </>
