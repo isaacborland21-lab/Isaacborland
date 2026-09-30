@@ -484,6 +484,69 @@
   pointer-events: none;
 }
 
+/* ---------- Calendar settings panel ---------- */
+
+.settingsOverlay {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(8, 8, 10, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.settingsPanel {
+  width: 100%;
+  max-width: 560px;
+  max-height: 90vh;
+  overflow: auto;
+  padding: 28px;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+  cursor: default;
+}
+
+.settingsPanel * {
+  cursor: default;
+}
+
+.settingsInput {
+  display: block;
+  width: 100%;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--surface-border);
+  resize: vertical;
+  /* This whole page is kiosk-mode (see .root above): no text cursor, no
+     selection. A real text field needs both back so it's actually usable. */
+  cursor: text;
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
+}
+
+.settingsPanel .toolBtn {
+  cursor: pointer;
+  background: var(--bg);
+}
+
+.settingsPanel .toolBtn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 /* ---------- Portrait / small screens: stack and scroll ---------- */
 
 @media (max-width: 900px), (orientation: portrait) {

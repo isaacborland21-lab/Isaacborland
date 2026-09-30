@@ -6,15 +6,23 @@ import AliveBackground from "../AliveBackground";
 import styles from "./dashboard.module.css";
 
 // ============================================================
-// Room dashboard — meant to live full-screen on a spare screen.
-// Clock, Bozeman weather, and Apple Calendar "next up".
+// Room dashboard — meant to live full-screen on a spare screen, but also
+// works as an ordinary signed-in page. Clock, weather, and calendar
+// "next up" — each of the latter two per the signed-in account: weather
+// follows wherever that account is currently logged in from (IP-based,
+// same lookup the homepage's weather effects use), and the calendar is
+// whatever iCloud link(s) that account configured via the "Calendar"
+// button below, stored on their own Clerk account.
 // Keeps the screen awake, dims itself overnight, nudges its layout a few
 // pixels every so often (burn-in), and reloads itself every few hours so
 // new deploys show up without anyone touching it.
 // ============================================================
 
-// Pinned location: a room display shouldn't guess where it is from its IP.
-const PLACE = { name: "Bozeman", lat: 45.677, lon: -111.0429, tz: "America/Denver" };
+type Place = { name: string; lat: number; lon: number; tz: string };
+
+// Shown before the signed-in account's own location has resolved (or if
+// that lookup fails) — a sane default rather than a blank panel.
+const FALLBACK_PLACE: Place = { name: "Bozeman", lat: 45.677, lon: -111.0429, tz: "America/Denver" };
 
 const WEATHER_EVERY_MS = 10 * 60 * 1000;
 const CALENDAR_EVERY_MS = 5 * 60 * 1000;
@@ -384,7 +392,8 @@ function CalendarStatus({ cal }: { cal: CalState }) {
   if (cal.status === "unconfigured")
     return (
       <p className={styles.muted}>
-        Calendar isn&apos;t connected yet. Add your iCloud calendar link as <code>ICLOUD_CALENDAR_URLS</code> in Vercel.
+        Your calendar isn&apos;t connected yet. Open <strong>Calendar</strong> (top right) to add your iCloud link —
+        it&apos;s tied to your account, so only you&apos;ll see it.
       </p>
     );
   if (cal.status === "signed-out")
@@ -454,11 +463,11 @@ function Agenda({ cal, now }: { cal: CalState; now: Date }) {
   );
 }
 
-function WeatherPanel({ wx, failed }: { wx: Weather | null; failed: boolean }) {
+function WeatherPanel({ wx, failed, place }: { wx: Weather | null; failed: boolean; place: Place }) {
   if (!wx) {
     return (
       <section className={`card ${styles.weatherCard}`}>
-        <p className={styles.eyebrow}>{PLACE.name}</p>
+        <p className={styles.eyebrow}>{place.name}</p>
         <p className={styles.muted}>{failed ? "Weather unavailable right now — retrying." : "Loading weather…"}</p>
       </section>
     );
@@ -503,7 +512,7 @@ function WeatherPanel({ wx, failed }: { wx: Weather | null; failed: boolean }) {
           <div className={styles.wxCond}>{describe(c.weather_code)}</div>
         </div>
         <div className={styles.wxFacts}>
-          <span>{PLACE.name}</span>
+          <span>{place.name}</span>
           <span>Feels {Math.round(c.apparent_temperature)}°</span>
           <span>
             H {days[0]?.hi}° · L {days[0]?.lo}°
@@ -549,6 +558,91 @@ function WeatherPanel({ wx, failed }: { wx: Weather | null; failed: boolean }) {
   );
 }
 
+function CalendarSettings({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const [value, setValue] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/calendar/settings")
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancelled) setValue(d.calendarUrls ?? "");
+      })
+      .catch(() => {
+        if (!cancelled) setError("Couldn't load your current settings.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    setSaved(false);
+    setError(null);
+    try {
+      const res = await fetch("/api/calendar/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ calendarUrls: value }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error || "Failed to save.");
+      }
+      setSaved(true);
+      onSaved();
+      window.setTimeout(onClose, 700);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className={styles.settingsOverlay} onClick={onClose}>
+      <div className={styles.settingsPanel} onClick={(e) => e.stopPropagation()}>
+        <p className={styles.eyebrow}>Your calendar</p>
+        <p className={styles.muted}>
+          Paste your iCloud &quot;Public Calendar&quot; link (webcal:// or https://). This is saved on your account
+          only — nobody else&apos;s dashboard shows it, and you won&apos;t see anyone else&apos;s. For more than one,
+          separate with commas; name one with <code>Label=</code>, e.g. <code>Work=webcal://…,Home=webcal://…</code>.
+        </p>
+        {loading ? (
+          <p className={styles.muted}>Loading…</p>
+        ) : (
+          <>
+            <textarea
+              className={styles.settingsInput}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              rows={4}
+              placeholder="webcal://p01-calendars.icloud.com/published/2/…"
+            />
+            {error && <p className={styles.warn}>{error}</p>}
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              <button className={styles.toolBtn} disabled={saving} onClick={save}>
+                {saving ? "Saving…" : saved ? "Saved" : "Save"}
+              </button>
+              <button className={styles.toolBtn} onClick={onClose}>
+                Close
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ---------------- Page ----------------
 
 export default function DashboardPage() {
@@ -561,16 +655,48 @@ export default function DashboardPage() {
   const [chrome, setChrome] = useState(true);
   const [shift, setShift] = useState({ x: 0, y: 0 });
   const [isFull, setIsFull] = useState(false);
+  const [place, setPlace] = useState<Place>(FALLBACK_PLACE);
+  const [showCalendarSettings, setShowCalendarSettings] = useState(false);
   const hideTimer = useRef<number | null>(null);
 
-  const loadWeather = useCallback(async () => {
+  // Resolve where this account is actually logged in from (IP-based, the
+  // same free lookup the homepage's weather effects use), so the weather
+  // panel follows whoever's signed in rather than staying pinned to one
+  // room's coordinates. Runs once per page load; silently keeps the
+  // fallback location if the lookup fails or is slow.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("https://ipapi.co/json/");
+        if (!res.ok) return;
+        const geo = await res.json();
+        const { latitude, longitude, city, timezone } = geo ?? {};
+        if (cancelled || !latitude || !longitude) return;
+        setPlace({
+          name: typeof city === "string" && city ? city : FALLBACK_PLACE.name,
+          lat: latitude,
+          lon: longitude,
+          tz: typeof timezone === "string" && timezone ? timezone : FALLBACK_PLACE.tz,
+        });
+      } catch {
+        // Keep the fallback location — weather still works, just for
+        // Bozeman instead of wherever this account actually signed in from.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const loadWeather = useCallback(async (p: Place) => {
     try {
       const url =
-        `https://api.open-meteo.com/v1/forecast?latitude=${PLACE.lat}&longitude=${PLACE.lon}` +
+        `https://api.open-meteo.com/v1/forecast?latitude=${p.lat}&longitude=${p.lon}` +
         `&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,wind_gusts_10m,relative_humidity_2m,is_day` +
         `&hourly=temperature_2m,weather_code,precipitation_probability` +
         `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset` +
-        `&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=${encodeURIComponent(PLACE.tz)}&forecast_days=7`;
+        `&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=${encodeURIComponent(p.tz)}&forecast_days=7`;
       const res = await fetch(url, { cache: "no-store" });
       if (!res.ok) throw new Error();
       setWx(await res.json());
@@ -603,15 +729,16 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Data refresh loops (+ refresh when the screen comes back on).
+  // Data refresh loops (+ refresh when the screen comes back on, or as soon
+  // as the resolved location moves off the fallback and onto the real one).
   useEffect(() => {
-    loadWeather();
+    loadWeather(place);
     loadCalendar();
-    const w = window.setInterval(loadWeather, WEATHER_EVERY_MS);
+    const w = window.setInterval(() => loadWeather(place), WEATHER_EVERY_MS);
     const c = window.setInterval(loadCalendar, CALENDAR_EVERY_MS);
     const onVisible = () => {
       if (document.visibilityState === "visible") {
-        loadWeather();
+        loadWeather(place);
         loadCalendar();
       }
     };
@@ -621,7 +748,7 @@ export default function DashboardPage() {
       window.clearInterval(c);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [loadWeather, loadCalendar]);
+  }, [loadWeather, loadCalendar, place]);
 
   // Reload every few hours so new deploys and a fresh session get picked up.
   useEffect(() => {
@@ -673,6 +800,9 @@ export default function DashboardPage() {
         <Link href="/" className={styles.toolBtn}>
           ← Home
         </Link>
+        <button className={styles.toolBtn} onClick={() => setShowCalendarSettings(true)}>
+          Calendar
+        </button>
         <button className={styles.toolBtn} onClick={toggleFull}>
           {isFull ? "Exit full screen" : "Full screen"}
         </button>
@@ -684,10 +814,14 @@ export default function DashboardPage() {
           {now && <NextUp cal={cal} now={now} />}
         </div>
         <div className={styles.right}>
-          <WeatherPanel wx={wx} failed={wxFailed} />
+          <WeatherPanel wx={wx} failed={wxFailed} place={place} />
           {now && <Agenda cal={cal} now={now} />}
         </div>
       </main>
+
+      {showCalendarSettings && (
+        <CalendarSettings onClose={() => setShowCalendarSettings(false)} onSaved={() => loadCalendar()} />
+      )}
 
       <footer className={styles.footer}>
         {updated ? `Updated ${updated.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : " "}
