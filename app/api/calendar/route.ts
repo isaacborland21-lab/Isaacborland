@@ -1,17 +1,22 @@
 import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { auth, clerkClient } from "@clerk/nextjs/server";
 import { eventsBetween, CalendarEvent } from "@/lib/ical";
 
 // Room dashboard calendar feed.
 //
-// Reads one or more iCloud "Public Calendar" links from the
-// ICLOUD_CALENDAR_URLS environment variable (comma-separated; webcal:// is
-// fine), expands recurring events, and returns everything from a few hours
-// ago through the next 8 days, sorted. The links stay server-side — the
-// browser only ever sees the events, and only when signed in.
+// Per-account: each signed-in user's dashboard shows only their own
+// calendar link(s), read from their own Clerk privateMetadata (set via
+// PUT /api/calendar/settings — see that route, and the "Calendar" button
+// on the dashboard page). privateMetadata never reaches the browser as
+// part of the Clerk user object, so this stays server-side the same way
+// the old site-wide env var did; it's just scoped per user now instead of
+// shared across everyone who happens to be signed in.
+//
+// Expands recurring events and returns everything from a few hours ago
+// through the next 8 days, sorted.
 //
 // Optional: label a calendar by prefixing its link with "Name=", e.g.
-//   ICLOUD_CALENDAR_URLS=Work=webcal://p1-caldav.icloud.com/...,Home=webcal://...
+//   Work=webcal://p1-caldav.icloud.com/...,Home=webcal://...
 // Otherwise the calendar's own name from the feed is used.
 
 export const dynamic = "force-dynamic";
@@ -20,8 +25,7 @@ const DEFAULT_TZ = process.env.DASHBOARD_TIMEZONE || "America/Denver";
 
 type Source = { label: string | null; url: string };
 
-function sources(): Source[] {
-  const raw = process.env.ICLOUD_CALENDAR_URLS || "";
+function parseSources(raw: string): Source[] {
   return raw
     .split(",")
     .map((s) => s.trim())
@@ -40,7 +44,17 @@ export async function GET() {
     return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   }
 
-  const list = sources();
+  let raw = "";
+  try {
+    const client = await clerkClient();
+    const user = await client.users.getUser(userId);
+    raw = (user.privateMetadata as { calendarUrls?: string } | null)?.calendarUrls || "";
+  } catch {
+    // Treat a failure to load the account the same as "nothing configured"
+    // rather than breaking the whole dashboard over it.
+  }
+
+  const list = parseSources(raw);
   if (list.length === 0) {
     return NextResponse.json({ configured: false, events: [], errors: [] });
   }
