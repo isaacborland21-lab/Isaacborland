@@ -682,8 +682,8 @@ function CalendarSettings({ onClose, onSaved }: { onClose: () => void; onSaved: 
   }
 
   return (
-    <div className={styles.settingsOverlay} onClick={onClose}>
-      <div className={styles.settingsPanel} onClick={(e) => e.stopPropagation()}>
+    <div className={styles.settingsOverlay}>
+      <div className={styles.settingsPanel}>
         <p className={styles.eyebrow}>Your calendar</p>
         <p className={styles.muted}>
           Paste your iCloud &quot;Public Calendar&quot; link (webcal:// or https://). This is saved on your account
@@ -794,8 +794,8 @@ function RemindersSettings({ onClose, onSaved }: { onClose: () => void; onSaved:
   }
 
   return (
-    <div className={styles.settingsOverlay} onClick={onClose}>
-      <div className={styles.settingsPanel} onClick={(e) => e.stopPropagation()}>
+    <div className={styles.settingsOverlay}>
+      <div className={styles.settingsPanel}>
         <p className={styles.eyebrow}>Your reminders</p>
         <p className={styles.muted}>
           Apple doesn&apos;t offer a public link for Reminders the way it does for Calendar, so this needs your
