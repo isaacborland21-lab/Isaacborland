@@ -7,12 +7,14 @@ import styles from "./dashboard.module.css";
 
 // ============================================================
 // Room dashboard — meant to live full-screen on a spare screen, but also
-// works as an ordinary signed-in page. Clock, weather, and calendar
-// "next up" — each of the latter two per the signed-in account: weather
-// follows wherever that account is currently logged in from (IP-based,
-// same lookup the homepage's weather effects use), and the calendar is
-// whatever iCloud link(s) that account configured via the "Calendar"
-// button below, stored on their own Clerk account.
+// works as an ordinary signed-in page. Clock, weather, calendar "next up",
+// and reminders — every account-specific piece follows whoever's signed
+// in: weather follows wherever that account is currently logged in from
+// (IP-based, same lookup the homepage's weather effects use), the
+// calendar is whatever iCloud link(s) that account configured via the
+// "Calendar" button below, and reminders come from whatever Apple ID that
+// account configured via the "Reminders" button — both stored on their
+// own Clerk account, never a site-wide feed.
 // Keeps the screen awake, dims itself overnight, nudges its layout a few
 // pixels every so often (burn-in), and reloads itself every few hours so
 // new deploys show up without anyone touching it.
@@ -26,6 +28,7 @@ const FALLBACK_PLACE: Place = { name: "Bozeman", lat: 45.677, lon: -111.0429, tz
 
 const WEATHER_EVERY_MS = 10 * 60 * 1000;
 const CALENDAR_EVERY_MS = 5 * 60 * 1000;
+const REMINDERS_EVERY_MS = 5 * 60 * 1000;
 const RELOAD_EVERY_MS = 6 * 60 * 60 * 1000;
 const NIGHT_START = 23; // 11 pm
 const NIGHT_END = 6; // 6 am
@@ -48,6 +51,24 @@ type CalState =
   | { status: "signed-out" }
   | { status: "error"; message: string }
   | { status: "ok"; events: CalEvent[]; errors: string[] };
+
+type ReminderItem = {
+  id: string;
+  title: string;
+  due: string | null;
+  completed: boolean;
+  priority: number | null;
+  list: string;
+};
+
+type ReminderList = { name: string; items: ReminderItem[] };
+
+type RemState =
+  | { status: "loading" }
+  | { status: "unconfigured" }
+  | { status: "signed-out" }
+  | { status: "error"; message: string }
+  | { status: "ok"; lists: ReminderList[]; errors: string[] };
 
 type Weather = {
   current: {
@@ -463,6 +484,59 @@ function Agenda({ cal, now }: { cal: CalState; now: Date }) {
   );
 }
 
+function RemindersStatus({ rem }: { rem: RemState }) {
+  if (rem.status === "loading") return <p className={styles.muted}>Loading reminders…</p>;
+  if (rem.status === "unconfigured")
+    return (
+      <p className={styles.muted}>
+        Reminders aren&apos;t connected yet. Open <strong>Reminders</strong> (top right) to add your Apple ID —
+        it&apos;s tied to your account, so only you&apos;ll see it.
+      </p>
+    );
+  if (rem.status === "signed-out")
+    return (
+      <p className={styles.muted}>
+        Signed out. <Link href="/sign-in">Sign in again</Link> to load your reminders.
+      </p>
+    );
+  if (rem.status === "error") return <p className={styles.muted}>{rem.message}</p>;
+  return null;
+}
+
+function RemindersPanel({ rem, now }: { rem: RemState; now: Date }) {
+  const flat = useMemo(() => {
+    if (rem.status !== "ok") return [];
+    return rem.lists.flatMap((l) => l.items).slice(0, 8);
+  }, [rem]);
+
+  return (
+    <section className={`card ${styles.remCard}`}>
+      <p className={styles.eyebrow}>Reminders</p>
+      {rem.status !== "ok" ? (
+        <RemindersStatus rem={rem} />
+      ) : flat.length === 0 ? (
+        <p className={styles.muted}>Nothing outstanding.</p>
+      ) : (
+        <ul className={styles.remList}>
+          {flat.map((it) => {
+            const overdue = it.due ? new Date(it.due).getTime() < now.getTime() : false;
+            return (
+              <li key={it.id} className={overdue ? styles.remOverdue : undefined}>
+                <span className={styles.remDot} />
+                <span className={styles.remTitle}>{it.title}</span>
+                <span className={styles.remMeta}>
+                  {it.due ? new Date(it.due).toLocaleDateString([], { month: "short", day: "numeric" }) : it.list}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {rem.status === "ok" && rem.errors.length > 0 && <p className={styles.warn}>{rem.errors.join(" · ")}</p>}
+    </section>
+  );
+}
+
 function WeatherPanel({ wx, failed, place }: { wx: Weather | null; failed: boolean; place: Place }) {
   if (!wx) {
     return (
@@ -643,6 +717,136 @@ function CalendarSettings({ onClose, onSaved }: { onClose: () => void; onSaved: 
   );
 }
 
+function RemindersSettings({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const [appleId, setAppleId] = useState("");
+  const [password, setPassword] = useState("");
+  const [hasPassword, setHasPassword] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/reminders/settings")
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return;
+        setAppleId(d.appleId ?? "");
+        setHasPassword(Boolean(d.hasPassword));
+      })
+      .catch(() => {
+        if (!cancelled) setError("Couldn't load your current settings.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    setSaved(false);
+    setError(null);
+    try {
+      const res = await fetch("/api/reminders/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ appleId, appPassword: password }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error || "Failed to save.");
+      }
+      setSaved(true);
+      if (password) setHasPassword(true);
+      setPassword("");
+      onSaved();
+      window.setTimeout(onClose, 700);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function disconnect() {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/reminders/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ appleId: "", clearAll: true }),
+      });
+      if (!res.ok) throw new Error("Failed to disconnect.");
+      setAppleId("");
+      setHasPassword(false);
+      setPassword("");
+      onSaved();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className={styles.settingsOverlay} onClick={onClose}>
+      <div className={styles.settingsPanel} onClick={(e) => e.stopPropagation()}>
+        <p className={styles.eyebrow}>Your reminders</p>
+        <p className={styles.muted}>
+          Apple doesn&apos;t offer a public link for Reminders the way it does for Calendar, so this needs your
+          Apple ID plus an <strong>app-specific password</strong> — never your real Apple ID password. Create one at{" "}
+          <strong>appleid.apple.com → Sign-In and Security → App-Specific Passwords</strong>. It talks straight to
+          Apple and is saved on your account only — nobody else&apos;s dashboard shows it, and you can revoke it
+          from your Apple ID any time.
+        </p>
+        {loading ? (
+          <p className={styles.muted}>Loading…</p>
+        ) : (
+          <>
+            <input
+              className={styles.settingsInput}
+              style={{ resize: "none" }}
+              value={appleId}
+              onChange={(e) => setAppleId(e.target.value)}
+              placeholder="you@icloud.com"
+              type="email"
+              autoComplete="off"
+            />
+            <input
+              className={styles.settingsInput}
+              style={{ resize: "none" }}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder={hasPassword ? "•••••••• (saved — leave blank to keep)" : "abcd-efgh-ijkl-mnop"}
+              type="password"
+              autoComplete="off"
+            />
+            {error && <p className={styles.warn}>{error}</p>}
+            <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
+              <button className={styles.toolBtn} disabled={saving} onClick={save}>
+                {saving ? "Saving…" : saved ? "Saved" : "Save"}
+              </button>
+              <button className={styles.toolBtn} onClick={onClose}>
+                Close
+              </button>
+              {(appleId || hasPassword) && (
+                <button className={styles.toolBtn} disabled={saving} onClick={disconnect}>
+                  Disconnect
+                </button>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ---------------- Page ----------------
 
 export default function DashboardPage() {
@@ -651,12 +855,14 @@ export default function DashboardPage() {
   const [wx, setWx] = useState<Weather | null>(null);
   const [wxFailed, setWxFailed] = useState(false);
   const [cal, setCal] = useState<CalState>({ status: "loading" });
+  const [rem, setRem] = useState<RemState>({ status: "loading" });
   const [updated, setUpdated] = useState<Date | null>(null);
   const [chrome, setChrome] = useState(true);
   const [shift, setShift] = useState({ x: 0, y: 0 });
   const [isFull, setIsFull] = useState(false);
   const [place, setPlace] = useState<Place>(FALLBACK_PLACE);
   const [showCalendarSettings, setShowCalendarSettings] = useState(false);
+  const [showRemindersSettings, setShowRemindersSettings] = useState(false);
   const hideTimer = useRef<number | null>(null);
 
   // Resolve where this account is actually logged in from (IP-based, the
@@ -729,26 +935,48 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const loadReminders = useCallback(async () => {
+    try {
+      const res = await fetch("/api/reminders", { cache: "no-store", redirect: "manual" });
+      if (signedOutResponse(res)) {
+        setRem({ status: "signed-out" });
+        return;
+      }
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      if (!data.configured) setRem({ status: "unconfigured" });
+      else setRem({ status: "ok", lists: data.lists ?? [], errors: data.errors ?? [] });
+    } catch {
+      // Keep the last good reminders on screen; only show an error if we never had any.
+      setRem((prev) => (prev.status === "ok" ? prev : { status: "error", message: "Couldn't load reminders — retrying." }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Data refresh loops (+ refresh when the screen comes back on, or as soon
   // as the resolved location moves off the fallback and onto the real one).
   useEffect(() => {
     loadWeather(place);
     loadCalendar();
+    loadReminders();
     const w = window.setInterval(() => loadWeather(place), WEATHER_EVERY_MS);
     const c = window.setInterval(loadCalendar, CALENDAR_EVERY_MS);
+    const r = window.setInterval(loadReminders, REMINDERS_EVERY_MS);
     const onVisible = () => {
       if (document.visibilityState === "visible") {
         loadWeather(place);
         loadCalendar();
+        loadReminders();
       }
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       window.clearInterval(w);
       window.clearInterval(c);
+      window.clearInterval(r);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [loadWeather, loadCalendar, place]);
+  }, [loadWeather, loadCalendar, loadReminders, place]);
 
   // Reload every few hours so new deploys and a fresh session get picked up.
   useEffect(() => {
@@ -803,6 +1031,9 @@ export default function DashboardPage() {
         <button className={styles.toolBtn} onClick={() => setShowCalendarSettings(true)}>
           Calendar
         </button>
+        <button className={styles.toolBtn} onClick={() => setShowRemindersSettings(true)}>
+          Reminders
+        </button>
         <button className={styles.toolBtn} onClick={toggleFull}>
           {isFull ? "Exit full screen" : "Full screen"}
         </button>
@@ -811,6 +1042,7 @@ export default function DashboardPage() {
       <main className={styles.board} style={{ transform: `translate3d(${shift.x}px, ${shift.y}px, 0)` }}>
         <div className={styles.left}>
           <Clock />
+          {now && <RemindersPanel rem={rem} now={now} />}
           {now && <NextUp cal={cal} now={now} />}
         </div>
         <div className={styles.right}>
@@ -821,6 +1053,9 @@ export default function DashboardPage() {
 
       {showCalendarSettings && (
         <CalendarSettings onClose={() => setShowCalendarSettings(false)} onSaved={() => loadCalendar()} />
+      )}
+      {showRemindersSettings && (
+        <RemindersSettings onClose={() => setShowRemindersSettings(false)} onSaved={() => loadReminders()} />
       )}
 
       <footer className={styles.footer}>
