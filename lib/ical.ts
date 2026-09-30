@@ -10,6 +10,10 @@
 // Anything exotic it doesn't understand degrades to "show the first
 // occurrence" rather than throwing — a dashboard should never go blank over
 // one weird event.
+//
+// A few low-level pieces (unfold/parseLine/unescapeText/parseDateValue, and
+// the Prop type) are exported so lib/caldav.ts can reuse the same RFC 5545
+// line parser for VTODO (Reminders) items instead of duplicating it.
 
 export type CalendarEvent = {
   id: string;
@@ -21,7 +25,7 @@ export type CalendarEvent = {
   allDay: boolean;
 };
 
-type Prop = { name: string; params: Record<string, string>; value: string };
+export type Prop = { name: string; params: Record<string, string>; value: string };
 
 type Wall = { y: number; m: number; d: number; h: number; mi: number; s: number };
 
@@ -106,11 +110,11 @@ function toMs(v: DateValue, fallbackTz: string): number {
 
 // ---------- Parsing ----------
 
-function unfold(text: string): string[] {
+export function unfold(text: string): string[] {
   return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\n[ \t]/g, "").split("\n");
 }
 
-function parseLine(line: string): Prop | null {
+export function parseLine(line: string): Prop | null {
   // NAME;PARAM=a;PARAM2="b:c":VALUE — the first colon outside quotes splits.
   let inQuotes = false;
   let colon = -1;
@@ -134,11 +138,11 @@ function parseLine(line: string): Prop | null {
   return { name: segs[0].toUpperCase(), params, value };
 }
 
-function unescapeText(v: string): string {
+export function unescapeText(v: string): string {
   return v.replace(/\\n/gi, "\n").replace(/\\([,;\\])/g, "$1").trim();
 }
 
-function parseDateValue(raw: string, params: Record<string, string>, defaultTz: string): DateValue | null {
+export function parseDateValue(raw: string, params: Record<string, string>, defaultTz: string): DateValue | null {
   const v = raw.trim();
   const dateOnly = /^(\d{4})(\d{2})(\d{2})$/.exec(v);
   if (dateOnly || params.VALUE === "DATE") {
