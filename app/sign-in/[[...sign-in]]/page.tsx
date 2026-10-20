@@ -74,6 +74,27 @@ export default function SignInPage() {
           },
         }}
       />
+
+      <a
+        href="/crew"
+        style={{
+          marginTop: 28,
+          display: "block",
+          width: "100%",
+          maxWidth: 400,
+          textAlign: "center",
+          padding: "14px 20px",
+          borderRadius: 10,
+          border: "1px solid var(--accent)",
+          color: "var(--accent)",
+          fontFamily: mono,
+          fontWeight: 600,
+          fontSize: 15,
+          textDecoration: "none",
+        }}
+      >
+        Crew Login
+      </a>
     </main>
   );
 }
