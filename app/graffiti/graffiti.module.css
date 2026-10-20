@@ -411,9 +411,25 @@
   z-index: 0; /* keep Leaflet's panes under the site's fixed nav and our sheets */
 }
 
+.pickWrap {
+  position: relative;
+  margin-top: 8px;
+  z-index: 0;
+}
+
+/* the pin stays put in the middle; its tip is the exact center of the map */
+.pickPin {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -100%);
+  z-index: 600;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.45));
+}
+
 .pickMap {
   height: 240px;
-  margin-top: 8px;
   border-radius: 14px;
   border: 1px solid var(--surface-border);
   position: relative;
