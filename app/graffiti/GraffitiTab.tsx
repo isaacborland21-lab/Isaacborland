@@ -90,6 +90,14 @@ const errMsg = (e: unknown) => (e instanceof Error ? e.message : "Something went
    Main tab
    ====================================================================== */
 
+// how far (in screen pixels) the picked spot is from the middle of the little map; pixels, not meters,
+// because at low zoom a half-pixel rounding wobble is already hundreds of meters
+const offCenterPx = (map: any, lat: number, lng: number): number => {
+  const p = map.latLngToContainerPoint([lat, lng]);
+  const size = map.getSize();
+  return Math.hypot(p.x - size.x / 2, p.y - size.y / 2);
+};
+
 export default function GraffitiTab({ isOwner }: { isOwner: boolean }) {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -445,7 +453,7 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
 
   const pickBox = useRef<HTMLDivElement>(null);
   const pickMap = useRef<any>(null);
-  const pickMarker = useRef<any>(null);
+  const quiet = useRef(false); // true while WE move the little map, so that move is not mistaken for the crew dragging it
 
   // remember the last tag type
   useEffect(() => {
@@ -463,7 +471,7 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
         if (label && !dirty.current) setAddress(label);
         setHint(
           label
-            ? "Filled in from your GPS pin. Fix it if it is off (mid-block spots show the closest corner)."
+            ? "Filled in from the pin. Fix it if it is off (mid-block spots show the closest corner)."
             : "Could not look up the street. Type the intersection.",
         );
       })();
@@ -473,20 +481,20 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
     [setAddress],
   );
 
+  // The pin is fixed in the middle of the little map (see pickPin in the CSS). Moving the map moves the
+  // pin; this just keeps the map centered on the picked spot when the pick came from somewhere else
+  // (GPS, a map tap, a new fix).
   const placeMarker = useCallback((zoom: boolean) => {
-    const L = (window as any).L as LeafletNS | undefined;
     const map = pickMap.current;
     const pk = pickedRef.current;
-    if (!L || !map || !pk) return;
-    if (!pickMarker.current) {
-      pickMarker.current = L.marker([pk.lat, pk.lng], { draggable: true }).addTo(map);
-      pickMarker.current.on("dragend", () => {
-        const p = pickMarker.current.getLatLng();
-        setPick(p.lat, p.lng, false);
-      });
-    } else pickMarker.current.setLatLng([pk.lat, pk.lng]);
-    if (zoom) map.setView([pk.lat, pk.lng], 18);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!map || !pk) return;
+    quiet.current = true;
+    try {
+      if (zoom) map.setView([pk.lat, pk.lng], 18, { animate: false });
+      else if (offCenterPx(map, pk.lat, pk.lng) >= 1.5) map.setView([pk.lat, pk.lng], map.getZoom(), { animate: false });
+    } finally {
+      quiet.current = false;
+    }
   }, []);
 
   const setPick = useCallback(
@@ -502,7 +510,7 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
 
   const getGps = useCallback(() => {
     if (!navigator.geolocation) {
-      setHint('GPS not available here. Open "Adjust pin on map" and tap the spot.');
+      setHint('GPS not available here. Open "Adjust pin on map" and move the map to the spot.');
       setMapOpen(true);
       return;
     }
@@ -517,8 +525,8 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
         setGpsBusy(false);
         setHint(
           pendingRef.current
-            ? "Photo taken and its start time is saved. Tap the map to place the pin and the job will save."
-            : 'No GPS. Allow location access, or open "Adjust pin on map" and tap the spot.',
+            ? "Photo taken and its start time is saved. Move the map to put the pin on the spot and the job will save."
+            : 'No GPS. Allow location access, or open "Adjust pin on map" and move the map to the spot.',
         );
         setMapOpen(true);
       },
@@ -544,11 +552,26 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
         if (!pickMap.current) {
           const map = L.map(pickBox.current).setView([39.5, -98.35], 4);
           L.tileLayer(TILE_URL, { maxZoom: 19, attribution: TILE_ATTRIBUTION }).addTo(map);
-          map.on("click", (e: any) => void setPick(e.latlng.lat, e.latlng.lng, false));
+          // the pin sits in the middle of the map, so when the map stops moving the pick is the map center
+          map.on("moveend", () => {
+            if (quiet.current) return;
+            const c = map.getCenter();
+            const pk = pickedRef.current;
+            // ignore moves we caused ourselves (map already centered on the pick)
+            if (pk && offCenterPx(map, pk.lat, pk.lng) < 1.5) return;
+            void setPick(c.lat, c.lng, false);
+          });
+          // tapping the map slides that spot under the pin
+          map.on("click", (e: any) => map.panTo(e.latlng));
           pickMap.current = map;
         }
         window.setTimeout(() => {
-          pickMap.current?.invalidateSize();
+          quiet.current = true;
+          try {
+            pickMap.current?.invalidateSize({ pan: false, animate: false });
+          } finally {
+            quiet.current = false;
+          }
           placeMarker(true);
         }, 60);
       })
@@ -561,7 +584,6 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
     () => () => {
       pickMap.current?.remove();
       pickMap.current = null;
-      pickMarker.current = null;
     },
     [],
   );
@@ -579,10 +601,6 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
     setMode("report");
     setMapOpen(false);
     setOtherOpen(false);
-    if (pickMarker.current && pickMap.current) {
-      pickMap.current.removeLayer(pickMarker.current);
-      pickMarker.current = null;
-    }
     setHint("Getting your GPS location...");
   }
 
@@ -638,7 +656,7 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
   async function onSubmit(ev: FormEvent) {
     ev.preventDefault();
     const pk = pickedRef.current;
-    if (!pk) return toast("Still waiting on GPS. Tap the map to place the pin.");
+    if (!pk) return toast("Still waiting on GPS. Open Adjust pin on map and move the map to the spot.");
     setSaving(true);
     try {
       const fd = new FormData();
@@ -695,10 +713,18 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
       </div>
       <details className={styles.details} open={mapOpen} onToggle={(e) => setMapOpen((e.currentTarget as HTMLDetailsElement).open)}>
         <summary>Adjust pin on map</summary>
-        <div ref={pickBox} className={styles.pickMap} data-testid="pick-map">
-          {mapErr && <div className={styles.mapErr}>{mapErr}</div>}
+        <div className={styles.pickWrap}>
+          <div ref={pickBox} className={styles.pickMap} data-testid="pick-map">
+            {mapErr && <div className={styles.mapErr}>{mapErr}</div>}
+          </div>
+          {!mapErr && (
+            <svg className={styles.pickPin} data-testid="pick-pin" width="30" height="42" viewBox="0 0 30 42" aria-hidden="true">
+              <path d="M15 41C15 41 2 26 2 15a13 13 0 0 1 26 0c0 11-13 26-13 26z" fill="#e5594f" stroke="#fff" strokeWidth="2.5" />
+              <circle cx="15" cy="15" r="5" fill="#fff" />
+            </svg>
+          )}
         </div>
-        <div className={styles.hint}>Tap the map or drag the pin. The street name updates to match.</div>
+        <div className={styles.hint}>Drag the map so the pin sits on the tag. The street name updates when you let go.</div>
       </details>
 
       <span className={styles.lbl}>Type of tag</span>
