@@ -890,7 +890,6 @@ function IncidentSheet({
 }) {
   const [addr, setAddr] = useState(inc.address ?? "");
   const [notes, setNotes] = useState(inc.notes ?? "");
-  const [sched, setSched] = useState(inc.scheduled_for ?? "");
   const [mins, setMins] = useState(inc.duration_min != null ? String(inc.duration_min) : "");
   const [gtype, setGtype] = useState<GraffitiType>(inc.gtype);
   const [busy, setBusy] = useState(false);
@@ -914,7 +913,6 @@ function IncidentSheet({
       fd.set("address", addr);
       fd.set("gtype", gtype);
       fd.set("notes", notes);
-      fd.set("scheduled_for", sched);
       fd.set("duration_min", mins);
       for (const [k, v] of Object.entries(extra)) fd.set(k, v);
       if (photo) fd.set("photo", await shrinkPhoto(photo), "photo.jpg");
@@ -1059,11 +1057,6 @@ function IncidentSheet({
             </option>
           ))}
         </select>
-
-        <label className={styles.lbl} htmlFor="gs-sched">
-          Scheduled for
-        </label>
-        <input id="gs-sched" type="date" value={sched} onChange={(e) => setSched(e.target.value)} />
 
         <label className={styles.lbl} htmlFor="gs-notes">
           Notes
