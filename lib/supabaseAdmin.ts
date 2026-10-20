@@ -15,7 +15,7 @@ export function getSupabaseAdmin() {
   });
 }
 
-export const VALID_TABS = ["home", "projects", "food", "about", "contact"] as const;
+export const VALID_TABS = ["home", "projects", "food", "about", "contact", "graffiti"] as const;
 export type ValidTab = (typeof VALID_TABS)[number];
 
 export function isValidTab(tab: string): tab is ValidTab {
@@ -33,6 +33,7 @@ export type PublicMetadata = {
 // the owner having to grant access by hand. Home and Projects are
 // deliberately left out — those stay owner-only until explicitly granted.
 // Food is also owner-only by default — it's Isaac's personal recipe box.
+// Graffiti (work tracker with photos and billing) is owner-only until granted per user.
 export const DEFAULT_TAB_ADMIN: Partial<Record<ValidTab, boolean>> = {
   about: true,
   contact: true,

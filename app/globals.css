@@ -669,7 +669,7 @@ textarea:focus-visible {
   }
 
   .tab {
-    flex: 1 1 0;
+    flex: 1 1 auto; /* size to the label so 8 tabs still fit without clipping */
     min-width: 0;
     flex-direction: column;
     gap: 3px;
@@ -681,6 +681,13 @@ textarea:focus-visible {
   .tab svg {
     width: 22px;
     height: 22px;
+  }
+
+  /* up to 8 items (owner sees every tab + Dashboard): never let a label push the bar wider */
+  .tab span {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .tab.active {
@@ -803,5 +810,17 @@ textarea:focus-visible {
   }
   .parallax {
     transform: none !important;
+  }
+}
+
+/* Very narrow phones: the owner's bar can hold 8 items, so trim the type a little */
+@media (max-width: 380px) {
+  .tab {
+    font-size: 10px;
+  }
+
+  .tab svg {
+    width: 20px;
+    height: 20px;
   }
 }

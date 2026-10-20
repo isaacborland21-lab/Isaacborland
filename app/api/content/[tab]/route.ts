@@ -13,6 +13,11 @@ export async function PUT(request: Request, { params }: { params: { tab: string 
     return NextResponse.json({ error: "Unknown tab." }, { status: 400 });
   }
 
+  // The graffiti tracker stores its own data in its own tables; it has no editable page content.
+  if (tab === "graffiti") {
+    return NextResponse.json({ error: "This tab has no editable content." }, { status: 400 });
+  }
+
   const client = await clerkClient();
   const user = await client.users.getUser(userId);
   const metadata = user.publicMetadata as PublicMetadata;
