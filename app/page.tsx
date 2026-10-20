@@ -5,6 +5,7 @@ import { UserButton, useUser } from "@clerk/nextjs";
 import WeatherEffects, { WeatherInfo } from "./WeatherEffects";
 import FoodTab, { FoodContent } from "./FoodTab";
 import ProjectsTab from "./ProjectsTab";
+import GraffitiTab from "./graffiti/GraffitiTab";
 import { normalizeProjects, Project } from "@/lib/projects";
 import { readUrl, writeUrl } from "@/lib/urlState";
 import AliveBackground from "./AliveBackground";
@@ -17,7 +18,7 @@ const seasonLabels: Record<string, string> = {
   summer: "Summer theme",
 };
 
-const baseTabs = ["Home", "Projects", "Food", "About", "Contact"] as const;
+const baseTabs = ["Home", "Projects", "Graffiti", "Food", "About", "Contact"] as const;
 type Tab = (typeof baseTabs)[number] | "Admin";
 
 const mono = "'IBM Plex Mono', monospace";
@@ -86,7 +87,7 @@ type TabContentData = {
   contact: ContactContent;
 };
 
-type EditableTab = "home" | "projects" | "food" | "about" | "contact";
+type EditableTab = "home" | "projects" | "graffiti" | "food" | "about" | "contact";
 
 // Which nav tab corresponds to each permission key, in display order —
 // used to build the visible tab list for a given identity (real or
@@ -94,6 +95,7 @@ type EditableTab = "home" | "projects" | "food" | "about" | "contact";
 const tabLabelForKey: Record<EditableTab, Tab> = {
   home: "Home",
   projects: "Projects",
+  graffiti: "Graffiti",
   food: "Food",
   about: "About",
   contact: "Contact",
@@ -361,7 +363,7 @@ function ContactTab({
   );
 }
 
-const editableTabKeys = ["home", "projects", "food", "about", "contact"] as const;
+const editableTabKeys = ["home", "projects", "graffiti", "food", "about", "contact"] as const;
 
 function AdminTab({
   preview,
@@ -569,6 +571,15 @@ function Icon({ name }: { name: Tab }) {
           <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
         </svg>
       );
+    case "Graffiti":
+      return (
+        <svg {...common}>
+          <rect x="6" y="10" width="8" height="11" rx="1.8" />
+          <path d="M8 10V7.5h4V10" />
+          <path d="M9 7.5V5.5h2v2" />
+          <path d="M17 6.5h.01M19.5 4.5h.01M19.5 8.5h.01M17 10.5h.01M19.5 12.5h.01" strokeWidth={2.4} />
+        </svg>
+      );
     case "Food":
       return (
         <svg {...common}>
@@ -741,7 +752,7 @@ export default function HomePage() {
     ? [...baseTabs]
     : editableTabKeys.filter((key) => canEdit(key)).map((key) => tabLabelForKey[key]);
   const tabs: Tab[] = isOwner ? [...visibleBaseTabs, "Admin"] : visibleBaseTabs;
-  const usesContent = active !== "Admin";
+  const usesContent = active !== "Admin" && active !== "Graffiti";
 
   // Keep the active tab in sync with what's actually visible: a shared
   // ?tab=admin link does nothing for non-owners (send them Home), and
@@ -944,6 +955,7 @@ export default function HomePage() {
               onReplaced={(raw) => setContent((prev) => (prev ? { ...prev, projects: normalizeProjects(raw) } : prev))}
             />
           )}
+          {active === "Graffiti" && canEdit("graffiti") && <GraffitiTab isOwner={isOwner} />}
           {content && active === "Food" && canEdit("food") && (
             <FoodTab data={food} editable={canEdit("food")} onSave={(d) => saveTab("food", d)} />
           )}
