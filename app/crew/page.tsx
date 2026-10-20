@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { SignIn, SignOutButton, UserButton, useUser } from "@clerk/nextjs";
 import AliveBackground from "../AliveBackground";
 import GraffitiTab from "../graffiti/GraffitiTab";
@@ -42,6 +43,17 @@ const wrap = {
 
 export default function CrewPage() {
   const { user, isLoaded, isSignedIn } = useUser();
+
+  // One-time flag so the main page can send a crew sign-in back here if Clerk lands it there.
+  useEffect(() => {
+    if (!isLoaded) return;
+    try {
+      if (isSignedIn) window.sessionStorage.removeItem("crewLogin");
+      else window.sessionStorage.setItem("crewLogin", "1");
+    } catch {
+      /* private mode: skip */
+    }
+  }, [isLoaded, isSignedIn]);
 
   if (!isLoaded) {
     return (
@@ -130,6 +142,11 @@ export default function CrewPage() {
             />
             <p className="site-name">isaacborland.com · Crew</p>
           </div>
+          {isOwner && (
+            <a href="/?tab=home" style={{ fontFamily: mono, fontSize: 13, color: "var(--accent)" }}>
+              Open full site →
+            </a>
+          )}
         </header>
         <div className="tab-content">
           <GraffitiTab isOwner={isOwner} />

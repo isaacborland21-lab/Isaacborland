@@ -752,6 +752,34 @@ export default function HomePage() {
     ? [...baseTabs]
     : editableTabKeys.filter((key) => canEdit(key)).map((key) => tabLabelForKey[key]);
   const tabs: Tab[] = isOwner ? [...visibleBaseTabs, "Admin"] : visibleBaseTabs;
+
+  // Crew accounts never see the hub. Someone who has the graffiti tab but none of the real
+  // hub tabs (home/projects/food; About and Contact are just the new-account defaults) goes
+  // straight to /crew. Also: /crew leaves a one-time flag when it shows its sign-in, so if the
+  // sign-in lands here instead of back on /crew, we send the person back there.
+  const realMeta = metadata;
+  const crewOnly =
+    !preview &&
+    realMeta.owner !== true &&
+    realMeta.tabAdmin?.graffiti === true &&
+    !realMeta.tabAdmin?.home &&
+    !realMeta.tabAdmin?.projects &&
+    !realMeta.tabAdmin?.food;
+  const [crewRedirect, setCrewRedirect] = useState(false);
+  useEffect(() => {
+    if (!isLoaded || !user) return;
+    let flagged = false;
+    try {
+      flagged = window.sessionStorage.getItem("crewLogin") === "1";
+      if (flagged) window.sessionStorage.removeItem("crewLogin");
+    } catch {
+      /* private mode: skip the flag */
+    }
+    if (crewOnly || flagged) {
+      setCrewRedirect(true);
+      window.location.replace("/crew");
+    }
+  }, [isLoaded, user, crewOnly]);
   const usesContent = active !== "Admin" && active !== "Graffiti";
 
   // Keep the active tab in sync with what's actually visible: a shared
@@ -794,6 +822,17 @@ export default function HomePage() {
   }
 
   const firstName = user?.firstName?.trim();
+
+  if (crewRedirect || crewOnly) {
+    return (
+      <>
+        <AliveBackground />
+        <main className="shell">
+          <p style={{ fontFamily: sans, fontSize: 14, color: "var(--text-dim)" }}>Taking you to the crew page…</p>
+        </main>
+      </>
+    );
+  }
 
   return (
     <>
