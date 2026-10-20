@@ -310,6 +310,15 @@ export default function GraffitiTab({ isOwner }: { isOwner: boolean }) {
    Map view
    ====================================================================== */
 
+// The Map tab only covers the Bozeman area (Bozeman, Belgrade, Four Corners, Gallatin Gateway, Bridger Canyon).
+const BOZEMAN_CENTER: [number, number] = [45.677, -111.0386];
+const BOZEMAN_BOUNDS: [[number, number], [number, number]] = [
+  [45.55, -111.3],
+  [45.82, -110.85],
+];
+const inBozeman = (lat: number, lng: number) =>
+  lat >= BOZEMAN_BOUNDS[0][0] && lat <= BOZEMAN_BOUNDS[1][0] && lng >= BOZEMAN_BOUNDS[0][1] && lng <= BOZEMAN_BOUNDS[1][1];
+
 function MapView({ incidents, active, onOpen }: { incidents: Incident[]; active: boolean; onOpen: (id: number) => void }) {
   const box = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
@@ -319,6 +328,7 @@ function MapView({ incidents, active, onOpen }: { incidents: Incident[]; active:
   onOpenRef.current = onOpen;
   const [filter, setFilter] = useState<"open" | "" | "removed">("open");
   const [err, setErr] = useState<string | null>(null);
+  const [outside, setOutside] = useState(0);
   const latest = useRef({ incidents, filter });
   latest.current = { incidents, filter };
 
@@ -331,16 +341,26 @@ function MapView({ incidents, active, onOpen }: { incidents: Incident[]; active:
     const { incidents: all, filter: f } = latest.current;
     const shown = all.filter((i) => (f === "open" ? i.status !== "removed" : !f || i.status === f));
     const pts: [number, number][] = [];
+    let away = 0;
     for (const i of shown) {
+      if (!inBozeman(i.lat, i.lng)) {
+        away++;
+        continue;
+      }
       const m = L.circleMarker([i.lat, i.lng], { radius: 11, color: "#fff", weight: 2, fillColor: COLORS[i.status], fillOpacity: 0.95 });
       m.on("click", () => onOpenRef.current(i.id));
       m.addTo(layer);
       pts.push([i.lat, i.lng]);
     }
+    setOutside(away);
     if (fit && pts.length) map.fitBounds(pts, { padding: [30, 30], maxZoom: 17 });
-    else if (fit && navigator.geolocation) {
+    else if (fit) map.setView(BOZEMAN_CENTER, 12);
+    if (fit && !pts.length && navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (p) => map.setView([p.coords.latitude, p.coords.longitude], 14),
+        (p) => {
+          // only jump to the phone's location when it is inside the Bozeman area
+          if (inBozeman(p.coords.latitude, p.coords.longitude)) map.setView([p.coords.latitude, p.coords.longitude], 14);
+        },
         () => {},
         { timeout: 8000 },
       );
@@ -362,13 +382,19 @@ function MapView({ incidents, active, onOpen }: { incidents: Incident[]; active:
       .then((L) => {
         if (cancelled || !box.current) return;
         if (!mapRef.current) {
-          const map = L.map(box.current).setView([39.5, -98.35], 4);
+          // the map cannot be dragged or zoomed out past the Bozeman area
+          const map = L.map(box.current, { maxBounds: BOZEMAN_BOUNDS, maxBoundsViscosity: 1, minZoom: 9 }).setView(BOZEMAN_CENTER, 12);
           L.tileLayer(TILE_URL, { maxZoom: 19, attribution: TILE_ATTRIBUTION }).addTo(map);
           layerRef.current = L.layerGroup().addTo(map);
           mapRef.current = map;
         }
         window.setTimeout(() => {
-          mapRef.current?.invalidateSize();
+          const m = mapRef.current;
+          if (m) {
+            m.invalidateSize();
+            // never zoom out far enough to show anything outside the area
+            m.setMinZoom(Math.max(9, m.getBoundsZoom(BOZEMAN_BOUNDS, true)));
+          }
           draw(true);
         }, 50);
       })
@@ -409,6 +435,11 @@ function MapView({ incidents, active, onOpen }: { incidents: Incident[]; active:
           </span>
         ))}
       </div>
+      {outside > 0 && (
+        <div className={styles.hint} data-testid="map-outside">
+          {outside} {outside === 1 ? "tag is" : "tags are"} outside the Bozeman area and not shown here (see the List).
+        </div>
+      )}
     </>
   );
 }
