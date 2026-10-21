@@ -585,7 +585,7 @@ export default function InvoicePage() {
                         {p.lines.map((r) => {
                           k += 1;
                           const fin = r.finished_at ?? r.removed_at;
-                          const detail = [r.gkind, r.surface && `on ${r.surface}`].filter(Boolean).join(" ");
+                          const detail = r.surface ? `on ${r.surface}` : "";
                           return (
                             <tr key={r.id}>
                               <td>{k}</td>

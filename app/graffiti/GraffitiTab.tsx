@@ -5,7 +5,6 @@ import type { ChangeEvent, FormEvent } from "react";
 import styles from "./graffiti.module.css";
 import {
   CHEMICAL_OPTIONS,
-  GKIND_OPTIONS,
   SURFACE_OPTIONS,
   GRAFFITI_STATUSES,
   GRAFFITI_TYPES,
@@ -570,7 +569,6 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
   const [reportFile, setReportFile] = useState<File | null>(null);
   const [reportPreview, setReportPreview] = useState<string | null>(null);
   const [urgent, setUrgent] = useState(false);
-  const [gkind, setGkind] = useState("");
   const [surface, setSurface] = useState("");
   const [chemical, setChemical] = useState("");
   const [showErr, setShowErr] = useState(false); // outline the blank required details after a blocked photo
@@ -587,10 +585,9 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
   const [mapErr, setMapErr] = useState<string | null>(null);
 
   // values read after awaits must be current, not stale from the render that started the work
-  const latest = useRef({ address: "", description: "", gtype: "ssr" as GraffitiType, gkind: "", surface: "", chemical: "" });
+  const latest = useRef({ address: "", description: "", gtype: "ssr" as GraffitiType, surface: "", chemical: "" });
   latest.current.description = description;
   latest.current.gtype = gtype;
-  latest.current.gkind = gkind;
   latest.current.surface = surface;
   latest.current.chemical = chemical;
   const setAddress = useCallback((v: string) => {
@@ -598,8 +595,8 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
     setAddressState(v);
   }, []);
 
-  // the kind of graffiti and what it's on are needed before any photo; the chemical too once you are removing it
-  const lacking = missingDetails({ gkind, surface, chemical }, intent === "remove");
+  // what it's on is needed before any photo; the chemical too once you are removing it (the tag type always has a value)
+  const lacking = missingDetails({ surface, chemical }, intent === "remove");
   const locked = lacking.length > 0;
   function blockIfLocked(): boolean {
     if (!locked) return false;
@@ -779,7 +776,6 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
     setMinutes("");
     setReportFile(null);
     setUrgent(false);
-    setGkind("");
     setSurface("");
     setShowErr(false);
     setFormKey((k) => k + 1);
@@ -818,7 +814,6 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
       fd.set("address", latest.current.address);
       fd.set("gtype", latest.current.gtype);
       fd.set("description", latest.current.description);
-      fd.set("gkind", latest.current.gkind);
       fd.set("surface", latest.current.surface);
       fd.set("chemical", latest.current.chemical);
       fd.set("photo_at", String(p.at));
@@ -856,7 +851,6 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
       fd.set("address", latest.current.address);
       fd.set("gtype", gtype);
       fd.set("description", description);
-      fd.set("gkind", gkind);
       fd.set("surface", surface);
       if (!reporting) fd.set("chemical", chemical);
       if (reporting) {
@@ -962,7 +956,6 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
       </div>
 
       <div className={styles.picks} key={formKey}>
-        <PickField id="gt-gkind" label="Kind of graffiti" options={GKIND_OPTIONS} value={gkind} onChange={setGkind} required invalid={showErr && !gkind.trim()} />
         <PickField id="gt-surface" label="What it's on" options={SURFACE_OPTIONS} value={surface} onChange={setSurface} required invalid={showErr && !surface.trim()} />
         {intent === "remove" && (
           <PickField
@@ -1166,13 +1159,12 @@ function IncidentSheet({
   const [notes, setNotes] = useState(inc.notes ?? "");
   const [mins, setMins] = useState(inc.duration_min != null ? String(inc.duration_min) : "");
   const [gtype, setGtype] = useState<GraffitiType>(inc.gtype);
-  const [gkind, setGkind] = useState(inc.gkind ?? "");
   const [surface, setSurface] = useState(inc.surface ?? "");
   const [chemical, setChemical] = useState(inc.chemical ?? "");
   const [busy, setBusy] = useState(false);
   const [showErr, setShowErr] = useState(false);
   // starting or finishing needs all three details (what the crew typed here counts)
-  const lacking = missingDetails({ gkind, surface, chemical }, true);
+  const lacking = missingDetails({ surface, chemical }, true);
   const locked = lacking.length > 0;
   function blocked(): boolean {
     if (!locked) return false;
@@ -1199,7 +1191,6 @@ function IncidentSheet({
       const fd = new FormData();
       fd.set("address", addr);
       fd.set("gtype", gtype);
-      fd.set("gkind", gkind);
       fd.set("surface", surface);
       fd.set("chemical", chemical);
       fd.set("notes", notes);
@@ -1412,7 +1403,6 @@ function IncidentSheet({
           ))}
         </select>
 
-        <PickField id="gs-gkind" label="Kind of graffiti" options={GKIND_OPTIONS} value={gkind} onChange={setGkind} required={inc.status !== "removed"} invalid={showErr && !gkind.trim()} />
         <PickField id="gs-surface" label="What it's on" options={SURFACE_OPTIONS} value={surface} onChange={setSurface} required={inc.status !== "removed"} invalid={showErr && !surface.trim()} />
         <PickField id="gs-chem" label="Chemical used" options={CHEMICAL_OPTIONS} value={chemical} onChange={setChemical} required={inc.status !== "removed"} invalid={showErr && !chemical.trim()} />
 

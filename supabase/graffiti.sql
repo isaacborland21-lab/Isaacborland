@@ -13,7 +13,7 @@ create table if not exists public.graffiti_incidents (
   lng           double precision not null check (lng between -180 and 180),
   address       text,
   gtype         text        not null default 'other'
-                check (gtype in ('ssr', 'slap', 'bare_brick', 'other')),
+                check (gtype in ('ssr', 'slap', 'powerwash', 'other')),
   description   text,
   notes         text,
   before_photo  text,
@@ -42,7 +42,6 @@ alter table public.graffiti_incidents
 
 -- Invoice details + who did the work (safe to re-run).
 alter table public.graffiti_incidents
-  add column if not exists gkind             text,   -- kind of graffiti: marker, chalk pen, sticker ...
   add column if not exists surface           text,   -- what it was on: electrical box, brick wall ...
   add column if not exists chemical          text,   -- what removed it: SSR, graffiti remover ...
   add column if not exists removed_by_name   text;   -- crew account that finished / took the job (invoice section)
@@ -84,3 +83,10 @@ on conflict (id) do nothing;
 update storage.buckets
    set allowed_mime_types = array['image/jpeg', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
  where id = 'graffiti';
+
+-- Tag types are now SSR / Slap tag / Powerwash / Other ("Bare brick" became "Powerwash").
+-- Existing installs: move old rows over, then swap the check constraint (safe to re-run).
+alter table public.graffiti_incidents drop constraint if exists graffiti_incidents_gtype_check;
+update public.graffiti_incidents set gtype = 'powerwash' where gtype = 'bare_brick';
+alter table public.graffiti_incidents
+  add constraint graffiti_incidents_gtype_check check (gtype in ('ssr', 'slap', 'powerwash', 'other'));
