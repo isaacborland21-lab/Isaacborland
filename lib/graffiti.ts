@@ -11,13 +11,13 @@
 export const GRAFFITI_STATUSES = ["reported", "scheduled", "in_progress", "removed"] as const;
 export type GraffitiStatus = (typeof GRAFFITI_STATUSES)[number];
 
-export const GRAFFITI_TYPES = ["ssr", "slap", "bare_brick", "other"] as const;
+export const GRAFFITI_TYPES = ["ssr", "slap", "powerwash", "other"] as const;
 export type GraffitiType = (typeof GRAFFITI_TYPES)[number];
 
 export const TYPE_NAMES: Record<GraffitiType, string> = {
   ssr: "SSR",
   slap: "Slap tag",
-  bare_brick: "Bare brick",
+  powerwash: "Powerwash",
   other: "Other",
 };
 
@@ -28,9 +28,8 @@ export const STATUS_LABEL: Record<GraffitiStatus, string> = {
   removed: "Removed",
 };
 
-// Pick-lists for the invoice description ("Graffiti Removal at <place>, <kind> on <surface>").
+// Pick-lists for the invoice description ("Graffiti Removal at <place>, <tag type> on <surface>").
 // Crew can also type their own ("Other"), so the stored value is free text.
-export const GKIND_OPTIONS = ["Marker", "Chalk pen", "Spray paint", "Sticker / slap tag", "Paint", "Etching", "Other"];
 export const SURFACE_OPTIONS = [
   "Electrical box",
   "Brick wall",
@@ -89,7 +88,6 @@ export type Incident = {
   claimed_by_me?: boolean;
   mine?: boolean;
   /** For the invoice description and the log: kind of graffiti, what it was on, what removed it. */
-  gkind: string | null;
   surface: string | null;
   chemical: string | null;
   /** Whoever finished (or took) the job: the account that gets the credit on the invoice. */
@@ -169,7 +167,6 @@ export type NewIncident = {
   removed_at: string | null;
   duration_min: number | null;
   urgent: boolean;
-  gkind: string | null;
   surface: string | null;
   chemical: string | null;
 };
@@ -180,12 +177,11 @@ export type NewIncident = {
  * mode "done":   already finished (minutes typed in).
  */
 /** The tag details the crew must fill in before any photo is taken (chemical only once someone is actually removing it). */
-export const DETAIL_LABELS = { gkind: "the kind of graffiti", surface: "what it's on", chemical: "the chemical used" } as const;
+export const DETAIL_LABELS = { surface: "what it's on", chemical: "the chemical used" } as const;
 
 /** Names of the required details that are still blank, in form order. */
-export function missingDetails(v: { gkind?: string | null; surface?: string | null; chemical?: string | null }, needChemical: boolean): string[] {
+export function missingDetails(v: { surface?: string | null; chemical?: string | null }, needChemical: boolean): string[] {
   const out: string[] = [];
-  if (!(v.gkind ?? "").trim()) out.push(DETAIL_LABELS.gkind);
   if (!(v.surface ?? "").trim()) out.push(DETAIL_LABELS.surface);
   if (needChemical && !(v.chemical ?? "").trim()) out.push(DETAIL_LABELS.chemical);
   return out;
@@ -203,7 +199,7 @@ export function computeCreate(fields: Fields, nowMs: number): Ok<{ row: NewIncid
 
   const gtype: GraffitiType = isType(fields.gtype) ? fields.gtype : "other";
   const mode = fields.mode === "start" || fields.mode === "done" ? fields.mode : "report";
-  const lacking = missingDetails({ gkind: fields.gkind, surface: fields.surface, chemical: fields.chemical }, mode !== "report");
+  const lacking = missingDetails({ surface: fields.surface, chemical: fields.chemical }, mode !== "report");
   if (lacking.length > 0) return { ok: false, error: detailsMessage(lacking) };
 
   let status: GraffitiStatus = "reported";
@@ -237,7 +233,6 @@ export function computeCreate(fields: Fields, nowMs: number): Ok<{ row: NewIncid
       removed_at: removed,
       duration_min: duration,
       urgent: flag(fields.urgent),
-      gkind: clean(fields.gkind, 80),
       surface: clean(fields.surface, 80),
       chemical: clean(fields.chemical, 80),
     },
@@ -252,7 +247,6 @@ export type CurrentIncident = {
   finished_at: string | null;
   removed_at: string | null;
   /** needed so starting / finishing can check the required details; absent = treated as blank */
-  gkind?: string | null;
   surface?: string | null;
   chemical?: string | null;
 };
@@ -268,7 +262,6 @@ export type IncidentPatch = Partial<{
   removed_at: string | null;
   duration_min: number | null;
   urgent: boolean;
-  gkind: string | null;
   surface: string | null;
   chemical: string | null;
   /** "me" = I'll take this, "release" = give it back. The route turns this into the claimed_by columns. */
@@ -359,7 +352,6 @@ export function computeUpdate(
   }
 
   if (has("urgent")) patch.urgent = flag(fields.urgent);
-  if (has("gkind")) patch.gkind = clean(fields.gkind, 80);
   if (has("surface")) patch.surface = clean(fields.surface, 80);
   if (has("chemical")) patch.chemical = clean(fields.chemical, 80);
   if (has("claim")) {
@@ -371,7 +363,6 @@ export function computeUpdate(
   if (fields.act === "start" || fields.act === "finish") {
     const lacking = missingDetails(
       {
-        gkind: "gkind" in patch ? patch.gkind : row.gkind,
         surface: "surface" in patch ? patch.surface : row.surface,
         chemical: "chemical" in patch ? patch.chemical : row.chemical,
       },
@@ -564,7 +555,6 @@ export type InvoiceRow = {
   finished_at: string | null;
   removed_at: string;
   duration_min: number | null;
-  gkind: string | null;
   surface: string | null;
   chemical: string | null;
   /** Name of the crew account that did the job (worked out on the server). Null = unknown. */
@@ -726,14 +716,14 @@ export function buildCsv(
   o: { invNo: string; tz: string; rateCents: number },
 ): string {
   const head = [
-    "Invoice", "Job #", "Date finished", "Done by", "Location / intersection", "Tag type", "Graffiti type", "Surface", "Chemical used", "Started", "Finished",
+    "Invoice", "Job #", "Date finished", "Done by", "Location / intersection", "Tag type", "Surface", "Chemical used", "Started", "Finished",
     "Actual minutes", "Billed minutes", "Minimum applied", "Rate per hour", "Amount", "Notes", "Description", "Latitude", "Longitude",
   ];
   const rows: (string | number | null)[][] = [head];
   for (const r of b.lines) {
     rows.push([
       o.invNo, r.id, r.day, csvSafe(r.person), csvSafe(r.address), TYPE_NAMES[r.type],
-      csvSafe(r.gkind), csvSafe(r.surface), csvSafe(chemicalOf(r)),
+      csvSafe(r.surface), csvSafe(chemicalOf(r)),
       r.started_at ? localStamp(r.started_at, o.tz) : "", // seconds kept for your records
       localStamp(r.finished_at ?? r.removed_at, o.tz),
       r.actual, r.billed, r.minApplied ? "yes" : "no",
@@ -742,6 +732,6 @@ export function buildCsv(
     ]);
   }
   rows.push([]);
-  rows.push(["TOTAL", "", "", "", "", "", "", "", "", "", "", b.tot.actual, b.tot.billed, "", "", (b.tot.cents / 100).toFixed(2)]);
+  rows.push(["TOTAL", "", "", "", "", "", "", "", "", "", b.tot.actual, b.tot.billed, "", "", (b.tot.cents / 100).toFixed(2)]);
   return "﻿" + rows.map((r) => r.map(csvCell).join(",")).join("\r\n") + "\r\n";
 }

@@ -623,7 +623,7 @@
 .claimBox { margin-top: 14px; }
 .claimBox .linkbtn { display: block; margin: 6px auto 0; }
 
-/* pick-lists for kind of graffiti / surface / chemical */
+/* pick-lists for surface / chemical */
 .picks {
   display: grid;
   grid-template-columns: 1fr;

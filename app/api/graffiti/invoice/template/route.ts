@@ -50,7 +50,7 @@ export async function POST(request: Request) {
     const sample: InvoiceRow = {
       id: 1, gtype: "ssr", address: "Test", notes: null, description: null, lat: 0, lng: 0, before_photo: null, after_photo: null,
       started_at: null, finished_at: "2026-01-15T18:00:00Z", removed_at: "2026-01-15T18:00:00Z", duration_min: 10,
-      gkind: null, surface: null, chemical: null, done_by: "Test",
+      surface: null, chemical: null, done_by: "Test",
     };
     const build = buildInvoice([sample], { month: "2026-01", tz: "America/Denver", rateCents: 8000, minMin: 30, roundTo: 30 });
     await buildInvoiceXlsx(bytes, build, { invoiceDate: "2026-01-31", invoiceNo: "TEST", poNumber: "", terms: "", billTo: [], rateCents: 8000, tz: "America/Denver" });

@@ -58,8 +58,9 @@ taken. The owner prints a monthly invoice for the city from `/graffiti/invoice`.
 - Each finished tag is credited to whoever took the job (else whoever finished it,
   else whoever reported/logged it), using the name on their login. The on-screen
   invoice and the CSV group by that person with a subtotal each.
-- The crew can also record the **kind of graffiti**, **what it is on** and the
-  **chemical used**. They are in the CSV and the sheet's Instance Reporting tab.
+- The crew record the **type of tag** (SSR, Slap tag, Powerwash, Other), **what it is on** and the
+  **chemical used**. They are in the CSV, and the tag type fills the sheet's *Graffiti type* column
+  (so the line reads "Graffiti Removal at Main St, SSR on Electrical box").
 - Invoice page → *Google Sheets invoice*: upload your own invoice sheet **once**
   (Google Sheets → File → Download → Microsoft Excel .xlsx). It is kept in the
   private `graffiti` bucket, not in this repo (it has your logo and letterhead).
@@ -76,9 +77,9 @@ taken. The owner prints a monthly invoice for the city from `/graffiti/invoice`.
   (they also need the graffiti tab). They then get an *Invoice* link in the tracker and can
   view the invoice, print/download it (PDF, CSV, Google Sheets) and mark a month invoiced.
   Billing settings, the template upload and "undo invoiced" stay owner-only.
-- **Required before a photo**: kind of graffiti, what it's on and chemical used must be
-  filled in before the before photo (or the after photo / starting or finishing without a
-  photo). A report only needs the kind and what it's on, since nothing has been removed yet.
+- **Required before a photo**: what it's on and the chemical used must be filled in before the
+  before photo (or the after photo / starting or finishing without a photo). The tag type always
+  has a value. A report only needs what it's on, since nothing has been removed yet.
   The server enforces this too, not just the form.
 
 **How billing works**
