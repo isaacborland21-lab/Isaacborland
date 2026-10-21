@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import styles from "./graffiti.module.css";
 import {
@@ -117,12 +117,27 @@ export default function GraffitiTab({ isOwner }: { isOwner: boolean }) {
   }, []);
   useEffect(() => () => window.clearTimeout(toastTimer.current), []);
 
+  // ids we have already seen, so a report from another phone can be announced when it shows up
+  const knownIds = useRef<Set<number> | null>(null);
+
   const load = useCallback(
     async (quiet = false) => {
       try {
         const data = await apiJson<{ incidents: Incident[]; truncated: boolean }>("/api/graffiti/incidents");
         setIncidents(data.incidents);
         setTruncated(data.truncated);
+        const known = knownIds.current;
+        knownIds.current = new Set(data.incidents.map((i) => i.id));
+        if (known && quiet) {
+          const fresh = data.incidents.filter((i) => !known.has(i.id) && i.status === "reported" && !i.mine);
+          if (fresh.length === 1) {
+            const f = fresh[0];
+            toast(`${f.urgent ? "URGENT report" : "New report"}: ${f.address || "see the list"}`);
+          } else if (fresh.length > 1) {
+            const u = fresh.filter((f) => f.urgent).length;
+            toast(`${fresh.length} new reports${u ? ` (${u} urgent)` : ""}`);
+          }
+        }
       } catch (e) {
         if (!quiet) toast(errMsg(e));
       }
@@ -131,13 +146,13 @@ export default function GraffitiTab({ isOwner }: { isOwner: boolean }) {
     [toast],
   );
 
-  // first load, then keep fresh when the phone wakes up or every minute (so the crew sees each other's work)
+  // first load, then keep fresh when the phone wakes up or every 15 seconds (so the crew sees each other's reports and work)
   useEffect(() => {
     void load();
     const refresh = () => {
       if (document.visibilityState === "visible") void load(true);
     };
-    const timer = window.setInterval(refresh, 60_000);
+    const timer = window.setInterval(refresh, 15_000);
     document.addEventListener("visibilitychange", refresh);
     window.addEventListener("online", refresh);
     return () => {
@@ -164,11 +179,14 @@ export default function GraffitiTab({ isOwner }: { isOwner: boolean }) {
 
   const rows = useMemo(() => {
     const q = fSearch.trim().toLowerCase();
-    return incidents.filter(
+    const isOpen = (i: Incident) => i.status === "reported" || i.status === "scheduled";
+    const list = incidents.filter(
       (i) =>
-        (!fStatus || i.status === fStatus) &&
-        (!q || `${i.address ?? ""} ${i.description ?? ""} ${i.notes ?? ""} ${typeName(i.gtype)}`.toLowerCase().includes(q)),
+        (!fStatus || (fStatus === "needs" ? isOpen(i) : i.status === fStatus)) &&
+        (!q || `${i.address ?? ""} ${i.description ?? ""} ${i.notes ?? ""} ${i.reported_by_name ?? ""} ${typeName(i.gtype)}`.toLowerCase().includes(q)),
     );
+    // urgent reports that still need removing go to the top (otherwise newest first, as loaded)
+    return [...list.filter((i) => i.urgent && isOpen(i)), ...list.filter((i) => !(i.urgent && isOpen(i)))];
   }, [incidents, fStatus, fSearch]);
 
   const opened = openId !== null ? incidents.find((i) => i.id === openId) ?? null : null;
@@ -233,6 +251,7 @@ export default function GraffitiTab({ isOwner }: { isOwner: boolean }) {
         <div className={styles.filters}>
           <select aria-label="Filter by status" value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
             <option value="">All statuses</option>
+            <option value="needs">Needs removal</option>
             {GRAFFITI_STATUSES.map((s) => (
               <option key={s} value={s}>
                 {STATUS_LABEL[s]}
@@ -247,7 +266,7 @@ export default function GraffitiTab({ isOwner }: { isOwner: boolean }) {
           <div className={styles.empty}>{incidents.length ? "Nothing matches." : "No incidents logged yet. Tap + Log new."}</div>
         ) : (
           rows.map((i) => {
-            const src = photoUrl(i.after_photo || i.before_photo);
+            const src = photoUrl(i.after_photo || i.before_photo || i.report_photo);
             return (
               <button key={i.id} type="button" className={styles.card} onClick={() => setOpenId(i.id)}>
                 {src ? (
@@ -258,10 +277,18 @@ export default function GraffitiTab({ isOwner }: { isOwner: boolean }) {
                 )}
                 <div>
                   <span className={`${styles.badge} ${BADGE[i.status]}`}>{STATUS_LABEL[i.status]}</span>
+                  {i.urgent && i.status !== "removed" && <span className={`${styles.badge} ${styles.bUrgent}`}>Urgent</span>}
                   <div className={styles.cardTitle}>{i.address || `${i.lat.toFixed(4)}, ${i.lng.toFixed(4)}`}</div>
                   <div className={styles.cardMeta}>
                     {`${typeName(i.gtype)} · ${fmtDate(i.reported_at)}` + (i.duration_min != null ? ` · ${fmtDur(i.duration_min)}` : "")}
                   </div>
+                  {(i.reported_by_name || i.claimed_by_name) && (
+                    <div className={styles.cardMeta}>
+                      {[i.reported_by_name ? `Reported by ${i.reported_by_name}` : "", i.claimed_by_name ? `Taken by ${i.claimed_by_me ? "you" : i.claimed_by_name}` : ""]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </div>
+                  )}
                 </div>
               </button>
             );
@@ -452,7 +479,12 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
   const [address, setAddressState] = useState("");
   const [description, setDescription] = useState("");
   const [gtype, setGtype] = useState<GraffitiType>("ssr");
-  const [mode, setMode] = useState<"report" | "done">("report");
+  // "remove": I'm at the tag and about to remove it (before photo starts the clock).
+  // "report": I'm just reporting it so somebody else can remove it.
+  const [intent, setIntent] = useState<"remove" | "report">("remove");
+  const [reportFile, setReportFile] = useState<File | null>(null);
+  const [reportPreview, setReportPreview] = useState<string | null>(null);
+  const [urgent, setUrgent] = useState(false);
   const [minutes, setMinutes] = useState("");
   const [hint, setHint] = useState("Getting your GPS location...");
   const [picked, setPicked] = useState<{ lat: number; lng: number } | null>(null);
@@ -491,6 +523,17 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
     const t = readStore("gt_type");
     if (t && (GRAFFITI_TYPES as readonly string[]).includes(t)) setGtype(t as GraffitiType);
   }, []);
+
+  // small preview of the report photo
+  useEffect(() => {
+    if (!reportFile) {
+      setReportPreview(null);
+      return;
+    }
+    const u = URL.createObjectURL(reportFile);
+    setReportPreview(u);
+    return () => URL.revokeObjectURL(u);
+  }, [reportFile]);
 
   const lookup = useCallback(
     (lat: number, lng: number) => {
@@ -629,7 +672,8 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
     setAddress("");
     setDescription("");
     setMinutes("");
-    setMode("report");
+    setReportFile(null);
+    setUrgent(false);
     setMapOpen(false);
     setOtherOpen(false);
     setHint("Getting your GPS location...");
@@ -690,18 +734,24 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
     if (!pk) return toast("Still waiting on GPS. Open Adjust pin on map and move the map to the spot.");
     setSaving(true);
     try {
+      const reporting = intent === "report";
       const fd = new FormData();
-      fd.set("mode", mode);
+      fd.set("mode", reporting ? "report" : "done");
       fd.set("lat", String(pk.lat));
       fd.set("lng", String(pk.lng));
       fd.set("address", latest.current.address);
       fd.set("gtype", gtype);
       fd.set("description", description);
-      if (mode === "done") fd.set("duration_min", minutes);
+      if (reporting) {
+        if (urgent) fd.set("urgent", "1");
+        if (reportFile) fd.set("photo", await shrinkPhoto(reportFile), "report.jpg");
+      } else {
+        fd.set("duration_min", minutes);
+      }
       const { incident } = await apiJson<{ incident: Incident }>("/api/graffiti/incidents", { method: "POST", body: fd });
       resetForm();
       onCreated(incident);
-      toast("Saved");
+      toast(reporting ? "Reported. The crew can see it now." : "Saved");
     } catch (e) {
       toast(errMsg(e));
     } finally {
@@ -711,6 +761,23 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
 
   return (
     <form onSubmit={onSubmit}>
+      <div className={styles.intent} role="radiogroup" aria-label="What are you doing?">
+        <label className={styles.opt}>
+          <input type="radio" name="intent" checked={intent === "remove"} onChange={() => setIntent("remove")} data-testid="intent-remove" />
+          <span>
+            I'm removing it
+            <small>Timer starts at the before photo</small>
+          </span>
+        </label>
+        <label className={styles.opt}>
+          <input type="radio" name="intent" checked={intent === "report"} onChange={() => setIntent("report")} data-testid="intent-report" />
+          <span>
+            Report it
+            <small>Someone else will remove it</small>
+          </span>
+        </label>
+      </div>
+
       <label className={styles.lbl} htmlFor="gt-address">
         Location / intersection
       </label>
@@ -788,27 +855,57 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
         onChange={(e) => setDescription(e.target.value)}
       />
 
-      <label className={`${styles.photobtn} ${busy ? styles.busy : ""}`}>
-        <input type="file" accept="image/*" capture="environment" data-testid="before-input" onChange={onBeforePhoto} />
-        Take before photo
-        <small>Saves the job and starts the timer</small>
-      </label>
-      <div className={styles.hint}>Set the tag type first. The clock starts the moment the photo is taken.</div>
+      {intent === "report" ? (
+        <Fragment key="report">
+          <label className={styles.urgent}>
+            <input type="checkbox" checked={urgent} onChange={(e) => setUrgent(e.target.checked)} data-testid="urgent-check" />
+            <span>
+              <b>Urgent</b>
+              <small>Offensive or very visible. Shows at the top for the crew.</small>
+            </span>
+          </label>
 
-      <details className={styles.details} open={otherOpen} onToggle={(e) => setOtherOpen((e.currentTarget as HTMLDetailsElement).open)}>
-        <summary>Log without the photo timer</summary>
-        <div className={styles.opts} style={{ marginTop: 10 }}>
-          <label className={`${styles.opt} ${styles.sm}`}>
-            <input type="radio" name="mode" checked={mode === "report"} onChange={() => setMode("report")} />
-            <span>Report only (no work yet)</span>
+          <span className={styles.lbl}>Photo of the tag (recommended)</span>
+          <label className={`${styles.photobtn} ${styles.reportPhoto}`}>
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              data-testid="report-input"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) setReportFile(f);
+              }}
+            />
+            {reportFile ? "Retake photo" : "Take photo of the tag"}
+            <small>Helps whoever removes it find and prepare for it</small>
           </label>
-          <label className={`${styles.opt} ${styles.sm}`}>
-            <input type="radio" name="mode" checked={mode === "done"} onChange={() => setMode("done")} />
-            <span>Already done</span>
+          {reportPreview && (
+            <div className={styles.reportPreview}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={reportPreview} alt="Photo of the tag" />
+              <button type="button" className={styles.linkbtn} onClick={() => setReportFile(null)}>
+                Remove photo
+              </button>
+            </div>
+          )}
+
+          <button type="submit" className={`${styles.btn} ${styles.block}`} style={{ marginTop: 16 }} disabled={saving} data-testid="save-report">
+            {saving ? "Saving..." : "Send report"}
+          </button>
+        </Fragment>
+      ) : (
+        <Fragment key="remove">
+          <label className={`${styles.photobtn} ${busy ? styles.busy : ""}`}>
+            <input type="file" accept="image/*" capture="environment" data-testid="before-input" onChange={onBeforePhoto} />
+            Take before photo
+            <small>Saves the job and starts the timer</small>
           </label>
-        </div>
-        {mode === "done" && (
-          <>
+          <div className={styles.hint}>Set the tag type first. The clock starts the moment the photo is taken.</div>
+
+          <details className={styles.details} open={otherOpen} onToggle={(e) => setOtherOpen((e.currentTarget as HTMLDetailsElement).open)}>
+            <summary>Already finished? Log it without the timer</summary>
             <label className={styles.lbl} htmlFor="gt-min">
               Minutes it took
             </label>
@@ -822,12 +919,12 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
               value={minutes}
               onChange={(e) => setMinutes(e.target.value)}
             />
-          </>
-        )}
-        <button type="submit" className={`${styles.btn} ${styles.sec} ${styles.block}`} style={{ marginTop: 12 }} disabled={saving}>
-          {saving ? "Saving..." : mode === "done" ? "Save completed job" : "Save report"}
-        </button>
-      </details>
+            <button type="submit" className={`${styles.btn} ${styles.sec} ${styles.block}`} style={{ marginTop: 12 }} disabled={saving}>
+              {saving ? "Saving..." : "Save completed job"}
+            </button>
+          </details>
+        </Fragment>
+      )}
     </form>
   );
 }
@@ -955,8 +1052,16 @@ function IncidentSheet({
     >
       <div className={styles.sheet} role="dialog" aria-modal="true" aria-label="Incident details">
         <span className={`${styles.badge} ${BADGE[inc.status]}`}>{STATUS_LABEL[inc.status]}</span>
+        {inc.urgent && inc.status !== "removed" && <span className={`${styles.badge} ${styles.bUrgent}`} style={{ marginLeft: 6 }}>Urgent</span>}
         <h2>{inc.address || `${inc.lat.toFixed(5)}, ${inc.lng.toFixed(5)}`}</h2>
         <div className={styles.small}>{meta}</div>
+        {(inc.reported_by_name || inc.claimed_by_name) && (
+          <div className={styles.small} data-testid="sheet-people">
+            {[inc.reported_by_name ? `Reported by ${inc.reported_by_name}` : "", inc.claimed_by_name ? `Taken by ${inc.claimed_by_me ? "you" : inc.claimed_by_name}` : ""]
+              .filter(Boolean)
+              .join(" · ")}
+          </div>
+        )}
         {inc.description && <p>{inc.description}</p>}
 
         {inc.status === "in_progress" && inc.started_at && <Elapsed start={inc.started_at} className={styles.bigtimer} />}
@@ -965,9 +1070,54 @@ function IncidentSheet({
         )}
 
         <div className={styles.photos}>
+          {inc.report_photo && <PhotoFig label="As reported" name={inc.report_photo} />}
           <PhotoFig label="Before" name={inc.before_photo} />
           <PhotoFig label="After" name={inc.after_photo} />
         </div>
+
+        {(inc.status === "reported" || inc.status === "scheduled") && (
+          <div className={styles.claimBox} data-testid="claim-box">
+            {!inc.claimed_by_name ? (
+              <button type="button" className={`${styles.btn} ${styles.block}`} disabled={busy} data-testid="claim-btn" onClick={() => save({ claim: "me" }, undefined, "You took this one")}>
+                I'll take this
+              </button>
+            ) : inc.claimed_by_me ? (
+              <button type="button" className={`${styles.btn} ${styles.sec} ${styles.block}`} disabled={busy} data-testid="release-btn" onClick={() => save({ claim: "release" }, undefined, "Given back")}>
+                You took this one. Give it back
+              </button>
+            ) : (
+              <button type="button" className={`${styles.btn} ${styles.sec} ${styles.block}`} disabled={busy} data-testid="takeover-btn" onClick={() => save({ claim: "me" }, undefined, "You took this one")}>
+                {inc.claimed_by_name} took this. Take over
+              </button>
+            )}
+            <button
+              type="button"
+              className={styles.linkbtn}
+              disabled={busy}
+              data-testid="urgent-btn"
+              onClick={() => save({ urgent: inc.urgent ? "0" : "1" }, undefined, inc.urgent ? "Urgent flag removed" : "Marked urgent")}
+            >
+              {inc.urgent ? "Remove urgent flag" : "Mark urgent"}
+            </button>
+            {!inc.report_photo && !inc.before_photo && (
+              <>
+                <span className={styles.lbl}>Add a photo of the tag</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  data-testid="add-report-photo"
+                  disabled={busy}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = "";
+                    if (f) void save({ photo_kind: "report" }, f, "Photo added");
+                  }}
+                />
+              </>
+            )}
+          </div>
+        )}
 
         {inc.status === "in_progress" && (
           <div>

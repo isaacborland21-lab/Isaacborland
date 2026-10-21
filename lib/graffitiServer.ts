@@ -18,7 +18,7 @@ export type Db = ReturnType<typeof getSupabaseAdmin>;
 export const BUCKET = "graffiti";
 
 export const INCIDENT_COLS =
-  "id, status, lat, lng, address, gtype, description, notes, before_photo, after_photo, reported_at, scheduled_for, started_at, finished_at, removed_at, duration_min, created_by";
+  "id, status, lat, lng, address, gtype, description, notes, before_photo, after_photo, reported_at, scheduled_for, started_at, finished_at, removed_at, duration_min, report_photo, reported_by_name, urgent, claimed_by, claimed_by_name, created_by";
 export const INVOICE_ROW_COLS =
   "id, gtype, address, notes, description, lat, lng, before_photo, after_photo, started_at, finished_at, removed_at, duration_min";
 export const SNAPSHOT_COLS =
@@ -26,7 +26,7 @@ export const SNAPSHOT_COLS =
 
 export const fail = (error: string, status: number) => NextResponse.json({ error }, { status });
 
-export type Who = { userId: string; owner: boolean };
+export type Who = { userId: string; owner: boolean; name: string };
 
 /**
  * Signed in AND allowed on the graffiti tab (owner, or granted "graffiti" in the Admin tab).
@@ -42,7 +42,8 @@ export async function requireGraffiti(ownerOnly = false): Promise<Who | NextResp
   if (ownerOnly ? !owner : !canEditTab(meta, "graffiti")) {
     return fail(ownerOnly ? "Owner only." : "Not permitted to use the graffiti tracker.", 403);
   }
-  return { userId, owner };
+  const name = [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.username || "Crew";
+  return { userId, owner, name: name.slice(0, 80) };
 }
 
 /** Narrows a "result or an error response" value: true means send it straight back to the caller. */
@@ -106,8 +107,8 @@ export async function removePhotos(db: Db, names: (string | null | undefined)[])
 }
 
 export function toIncident(row: Record<string, unknown>, userId: string): Incident {
-  const { created_by, ...rest } = row as Record<string, unknown> & { created_by?: string };
-  return { ...(rest as unknown as Incident), mine: created_by === userId };
+  const { created_by, claimed_by, ...rest } = row as Record<string, unknown> & { created_by?: string; claimed_by?: string | null };
+  return { ...(rest as unknown as Incident), mine: created_by === userId, claimed_by_me: !!claimed_by && claimed_by === userId };
 }
 
 export async function loadSettings(db: Db): Promise<BillingSettings> {

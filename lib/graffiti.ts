@@ -62,6 +62,13 @@ export type Incident = {
   finished_at: string | null;
   removed_at: string | null;
   duration_min: number | null;
+  /** Photo of the tag as first reported (separate from the remover's before/after photos). */
+  report_photo: string | null;
+  reported_by_name: string | null;
+  urgent: boolean;
+  /** Who said "I'll take this" (name only; the account id never leaves the server). */
+  claimed_by_name: string | null;
+  claimed_by_me?: boolean;
   mine?: boolean;
 };
 
@@ -120,6 +127,9 @@ export function minutesBetween(startIso: string | null, endMs: number): number |
 
 const iso = (ms: number) => new Date(ms).toISOString();
 
+/** A checkbox-style form value: "1", "true" or "on" means yes. */
+const flag = (v: string | undefined) => ["1", "true", "on"].includes((v ?? "").trim().toLowerCase());
+
 // ---------- Create ----------
 
 export type NewIncident = {
@@ -134,6 +144,7 @@ export type NewIncident = {
   finished_at: string | null;
   removed_at: string | null;
   duration_min: number | null;
+  urgent: boolean;
 };
 
 /**
@@ -179,6 +190,7 @@ export function computeCreate(fields: Fields, nowMs: number): Ok<{ row: NewIncid
       finished_at: finished,
       removed_at: removed,
       duration_min: duration,
+      urgent: flag(fields.urgent),
     },
   };
 }
@@ -202,6 +214,9 @@ export type IncidentPatch = Partial<{
   finished_at: string | null;
   removed_at: string | null;
   duration_min: number | null;
+  urgent: boolean;
+  /** "me" = I'll take this, "release" = give it back. The route turns this into the claimed_by columns. */
+  claim: "me" | "release";
 }>;
 
 /**
@@ -285,6 +300,12 @@ export function computeUpdate(
       return { ok: false, error: "Bad date" };
     }
     patch.scheduled_for = d === "" ? null : d;
+  }
+
+  if (has("urgent")) patch.urgent = flag(fields.urgent);
+  if (has("claim")) {
+    if (fields.claim !== "me" && fields.claim !== "release") return { ok: false, error: "Bad claim" };
+    patch.claim = fields.claim;
   }
 
   if (Object.keys(patch).length === 0 && !hasNewPhoto) return { ok: false, error: "Nothing to update" };
