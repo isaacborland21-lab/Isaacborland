@@ -16,15 +16,25 @@ import {
 
 export type Db = ReturnType<typeof getSupabaseAdmin>;
 export const BUCKET = "graffiti";
+/** Where the owner's invoice spreadsheet template is kept (private; not reachable through the photo route). */
+export const TEMPLATE_PATH = "templates/invoice-template.xlsx";
 
 export const INCIDENT_COLS =
-  "id, status, lat, lng, address, gtype, description, notes, before_photo, after_photo, reported_at, scheduled_for, started_at, finished_at, removed_at, duration_min, report_photo, reported_by_name, urgent, claimed_by, claimed_by_name, created_by";
+  "id, status, lat, lng, address, gtype, description, notes, before_photo, after_photo, reported_at, scheduled_for, started_at, finished_at, removed_at, duration_min, report_photo, reported_by_name, urgent, claimed_by, claimed_by_name, gkind, surface, chemical, removed_by_name, created_by";
 export const INVOICE_ROW_COLS =
-  "id, gtype, address, notes, description, lat, lng, before_photo, after_photo, started_at, finished_at, removed_at, duration_min";
+  "id, gtype, address, notes, description, lat, lng, before_photo, after_photo, started_at, finished_at, removed_at, duration_min, gkind, surface, chemical, removed_by_name, claimed_by_name, reported_by_name, created_by";
 export const SNAPSHOT_COLS =
   "month, invoice_no, invoice_date, invoiced_at, jobs, actual_min, billed_min, total_cents, rate_cents, min_minutes, round_to, job_ids";
 
 export const fail = (error: string, status: number) => NextResponse.json({ error }, { status });
+
+type NamedUser = { firstName: string | null; lastName: string | null; username: string | null };
+
+/** The name shown for a crew account: first + last name, else username, else "Crew". */
+export function displayName(user: NamedUser): string {
+  const name = [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.username || "Crew";
+  return name.slice(0, 80);
+}
 
 export type Who = { userId: string; owner: boolean; name: string };
 
@@ -42,8 +52,7 @@ export async function requireGraffiti(ownerOnly = false): Promise<Who | NextResp
   if (ownerOnly ? !owner : !canEditTab(meta, "graffiti")) {
     return fail(ownerOnly ? "Owner only." : "Not permitted to use the graffiti tracker.", 403);
   }
-  const name = [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.username || "Crew";
-  return { userId, owner, name: name.slice(0, 80) };
+  return { userId, owner, name: displayName(user) };
 }
 
 /** Narrows a "result or an error response" value: true means send it straight back to the caller. */
@@ -133,16 +142,48 @@ export async function fetchAll<T>(
   }
 }
 
+type FinishedRaw = Omit<InvoiceRow, "done_by"> & {
+  removed_by_name: string | null;
+  claimed_by_name: string | null;
+  reported_by_name: string | null;
+  created_by: string | null;
+};
+
+/** Account ids -> display names (Clerk), for jobs logged before names were stored on the job. */
+async function namesFor(ids: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (ids.length === 0) return out;
+  try {
+    const client = await clerkClient();
+    for (let i = 0; i < ids.length; i += 100) {
+      const res = await client.users.getUserList({ userId: ids.slice(i, i + 100), limit: 100 });
+      const users = Array.isArray(res) ? res : res.data;
+      for (const u of users) out.set(u.id, displayName(u));
+    }
+  } catch {
+    /* names are a nicety: an unknown person falls back to "Unassigned" rather than failing the invoice */
+  }
+  return out;
+}
+
+/** Finished jobs, each with `done_by`: who finished it, else who took it, else who logged it. */
 export async function loadFinished(db: Db): Promise<InvoiceRow[]> {
-  return fetchAll<InvoiceRow>((a, b) =>
+  const raw = await fetchAll<FinishedRaw>((a, b) =>
     db
       .from("graffiti_incidents")
       .select(INVOICE_ROW_COLS)
       .not("removed_at", "is", null)
       .order("removed_at", { ascending: true })
       .order("id", { ascending: true })
-      .range(a, b) as unknown as PromiseLike<{ data: InvoiceRow[] | null; error: { message: string } | null }>,
+      .range(a, b) as unknown as PromiseLike<{ data: FinishedRaw[] | null; error: { message: string } | null }>,
   );
+  const need = [...new Set(raw.filter((r) => !(r.removed_by_name || r.claimed_by_name || r.reported_by_name) && r.created_by).map((r) => r.created_by as string))];
+  const looked = await namesFor(need);
+  return raw.map((r) => {
+    const { removed_by_name, claimed_by_name, reported_by_name, created_by, ...row } = r;
+    const done_by = removed_by_name || claimed_by_name || reported_by_name || (created_by ? looked.get(created_by) ?? null : null);
+    return { ...row, done_by };
+  });
 }
 
 export async function loadInvoices(db: Db): Promise<InvoiceSnapshot[]> {

@@ -40,6 +40,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
     after_photo: string | null;
     report_photo: string | null;
     claimed_by: string | null;
+    claimed_by_name: string | null;
   };
 
   let kind: "before" | "after" | "report" | null = null;
@@ -72,6 +73,12 @@ export async function PATCH(request: Request, { params }: Ctx) {
     // starting the job yourself means you have taken it (even if someone else had said they would)
     update.claimed_by = who.userId;
     update.claimed_by_name = who.name;
+  }
+  // who gets the credit on the invoice: whoever took the job, else whoever finished it
+  if (columns.status === "removed" && current.status !== "removed") {
+    update.removed_by_name = (update.claimed_by_name as string | null | undefined) ?? current.claimed_by_name ?? who.name;
+  } else if (columns.status !== undefined && columns.status !== "removed") {
+    update.removed_by_name = null;
   }
   let newName: string | null = null;
   let oldName: string | null = null;

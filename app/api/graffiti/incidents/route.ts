@@ -75,6 +75,8 @@ export async function POST(request: Request) {
       reported_by_name: who.name,
       // starting a job yourself means you have taken it
       ...(made.row.status === "in_progress" ? { claimed_by: who.userId, claimed_by_name: who.name } : {}),
+      // logged as already finished: the person logging it did it
+      ...(made.row.status === "removed" ? { removed_by_name: who.name } : {}),
       created_by: who.userId,
     })
     .select(INCIDENT_COLS)

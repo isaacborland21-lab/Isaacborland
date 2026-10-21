@@ -28,6 +28,24 @@ export const STATUS_LABEL: Record<GraffitiStatus, string> = {
   removed: "Removed",
 };
 
+// Pick-lists for the invoice description ("Graffiti Removal at <place>, <kind> on <surface>").
+// Crew can also type their own ("Other"), so the stored value is free text.
+export const GKIND_OPTIONS = ["Marker", "Chalk pen", "Spray paint", "Sticker / slap tag", "Paint", "Etching", "Other"];
+export const SURFACE_OPTIONS = [
+  "Electrical box",
+  "Brick wall",
+  "Concrete",
+  "Sign / signpost",
+  "Utility pole",
+  "Mailbox",
+  "Trash can / dumpster",
+  "Bench",
+  "Bridge / underpass",
+  "Building wall",
+  "Other",
+];
+export const CHEMICAL_OPTIONS = ["SSR", "Graffiti remover", "Pressure wash", "Paint over", "Other"];
+
 export const MAX_MINUTES = 1440;
 export const MAX_PHOTO_BYTES = 4 * 1024 * 1024;
 export const PHOTO_NAME_RE = /^[a-f0-9]{32}\.jpg$/;
@@ -70,6 +88,12 @@ export type Incident = {
   claimed_by_name: string | null;
   claimed_by_me?: boolean;
   mine?: boolean;
+  /** For the invoice description and the log: kind of graffiti, what it was on, what removed it. */
+  gkind: string | null;
+  surface: string | null;
+  chemical: string | null;
+  /** Whoever finished (or took) the job: the account that gets the credit on the invoice. */
+  removed_by_name: string | null;
 };
 
 /** Form fields that were actually sent (a key is present even if its value is ""). */
@@ -145,6 +169,9 @@ export type NewIncident = {
   removed_at: string | null;
   duration_min: number | null;
   urgent: boolean;
+  gkind: string | null;
+  surface: string | null;
+  chemical: string | null;
 };
 
 /**
@@ -191,6 +218,9 @@ export function computeCreate(fields: Fields, nowMs: number): Ok<{ row: NewIncid
       removed_at: removed,
       duration_min: duration,
       urgent: flag(fields.urgent),
+      gkind: clean(fields.gkind, 80),
+      surface: clean(fields.surface, 80),
+      chemical: clean(fields.chemical, 80),
     },
   };
 }
@@ -215,6 +245,9 @@ export type IncidentPatch = Partial<{
   removed_at: string | null;
   duration_min: number | null;
   urgent: boolean;
+  gkind: string | null;
+  surface: string | null;
+  chemical: string | null;
   /** "me" = I'll take this, "release" = give it back. The route turns this into the claimed_by columns. */
   claim: "me" | "release";
 }>;
@@ -303,6 +336,9 @@ export function computeUpdate(
   }
 
   if (has("urgent")) patch.urgent = flag(fields.urgent);
+  if (has("gkind")) patch.gkind = clean(fields.gkind, 80);
+  if (has("surface")) patch.surface = clean(fields.surface, 80);
+  if (has("chemical")) patch.chemical = clean(fields.chemical, 80);
   if (has("claim")) {
     if (fields.claim !== "me" && fields.claim !== "release") return { ok: false, error: "Bad claim" };
     patch.claim = fields.claim;
@@ -492,7 +528,14 @@ export type InvoiceRow = {
   finished_at: string | null;
   removed_at: string;
   duration_min: number | null;
+  gkind: string | null;
+  surface: string | null;
+  chemical: string | null;
+  /** Name of the crew account that did the job (worked out on the server). Null = unknown. */
+  done_by: string | null;
 };
+
+export const UNASSIGNED = "Unassigned";
 
 export type InvoiceLine = InvoiceRow & {
   type: GraffitiType;
@@ -501,12 +544,17 @@ export type InvoiceLine = InvoiceRow & {
   cents: number;
   minApplied: boolean;
   day: string; // local date finished, YYYY-MM-DD
+  person: string; // who did it (UNASSIGNED when nobody is recorded)
 };
 
 export type Totals = { jobs: number; actual: number; billed: number; cents: number };
 
+export type PersonGroup = { name: string; lines: InvoiceLine[]; tot: Totals };
+
 export type InvoiceBuild = {
   lines: InvoiceLine[];
+  /** The same lines grouped by who did them (alphabetical, Unassigned last). */
+  people: PersonGroup[];
   ids: number[];
   byType: Partial<Record<GraffitiType, Totals>>;
   tot: Totals;
@@ -533,6 +581,9 @@ export function billingFor(settings: BillingSettings, snap: Pick<InvoiceSnapshot
   };
 }
 
+/** Chemical used; older jobs only have the tag-type buttons, where "SSR" was the chemical. */
+export const chemicalOf = (r: { chemical: string | null; gtype: string }) => r.chemical?.trim() || (r.gtype === "ssr" ? "SSR" : "");
+
 export const defaultInvoiceNo = (month: string) => `INV-${month.replace("-", "")}`;
 
 /** Completed jobs finished in `month` (local days in `tz`), with billing worked out. */
@@ -540,7 +591,7 @@ export function buildInvoice(
   rows: InvoiceRow[],
   o: { month: string; tz: string; rateCents: number; minMin: number; roundTo: number },
 ): InvoiceBuild {
-  const out: InvoiceBuild = { lines: [], ids: [], byType: {}, tot: emptyTotals(), warn: { notime: [], noaddr: [], noafter: [] } };
+  const out: InvoiceBuild = { lines: [], people: [], ids: [], byType: {}, tot: emptyTotals(), warn: { notime: [], noaddr: [], noafter: [] } };
   const inMonth = rows
     .filter((r) => r.removed_at && localMonth(r.removed_at, o.tz) === o.month)
     .sort((a, b) => Date.parse(a.removed_at) - Date.parse(b.removed_at) || a.id - b.id);
@@ -549,8 +600,17 @@ export function buildInvoice(
     const actual = r.duration_min === null ? null : r.duration_min;
     const { billed, cents, minApplied } = billTag(actual, o.minMin, o.roundTo, o.rateCents);
     const type: GraffitiType = isType(r.gtype) ? r.gtype : "other";
-    out.lines.push({ ...r, type, actual, billed, cents, minApplied, day: localDate(r.removed_at, o.tz) });
+    const person = (r.done_by ?? "").trim() || UNASSIGNED;
+    const line: InvoiceLine = { ...r, type, actual, billed, cents, minApplied, day: localDate(r.removed_at, o.tz), person };
+    out.lines.push(line);
     out.ids.push(r.id);
+    let g = out.people.find((p) => p.name === person);
+    if (!g) out.people.push((g = { name: person, lines: [], tot: emptyTotals() }));
+    g.lines.push(line);
+    g.tot.jobs += 1;
+    g.tot.actual += actual ?? 0;
+    g.tot.billed += billed;
+    g.tot.cents += cents;
 
     const b = (out.byType[type] ??= emptyTotals());
     for (const t of [b, out.tot]) {
@@ -563,6 +623,7 @@ export function buildInvoice(
     if (!r.address || r.address.trim() === "") out.warn.noaddr.push(r.id);
     if (!r.after_photo) out.warn.noafter.push(r.id);
   }
+  out.people.sort((a, b) => (a.name === UNASSIGNED ? 1 : b.name === UNASSIGNED ? -1 : a.name.localeCompare(b.name)));
   return out;
 }
 
@@ -629,13 +690,14 @@ export function buildCsv(
   o: { invNo: string; tz: string; rateCents: number },
 ): string {
   const head = [
-    "Invoice", "Job #", "Date finished", "Location / intersection", "Tag type", "Started", "Finished",
+    "Invoice", "Job #", "Date finished", "Done by", "Location / intersection", "Tag type", "Graffiti type", "Surface", "Chemical used", "Started", "Finished",
     "Actual minutes", "Billed minutes", "Minimum applied", "Rate per hour", "Amount", "Notes", "Description", "Latitude", "Longitude",
   ];
   const rows: (string | number | null)[][] = [head];
   for (const r of b.lines) {
     rows.push([
-      o.invNo, r.id, r.day, csvSafe(r.address), TYPE_NAMES[r.type],
+      o.invNo, r.id, r.day, csvSafe(r.person), csvSafe(r.address), TYPE_NAMES[r.type],
+      csvSafe(r.gkind), csvSafe(r.surface), csvSafe(chemicalOf(r)),
       r.started_at ? localStamp(r.started_at, o.tz) : "", // seconds kept for your records
       localStamp(r.finished_at ?? r.removed_at, o.tz),
       r.actual, r.billed, r.minApplied ? "yes" : "no",
@@ -644,6 +706,6 @@ export function buildCsv(
     ]);
   }
   rows.push([]);
-  rows.push(["TOTAL", "", "", "", "", "", "", b.tot.actual, b.tot.billed, "", "", (b.tot.cents / 100).toFixed(2)]);
+  rows.push(["TOTAL", "", "", "", "", "", "", "", "", "", "", b.tot.actual, b.tot.billed, "", "", (b.tot.cents / 100).toFixed(2)]);
   return "﻿" + rows.map((r) => r.map(csvCell).join(",")).join("\r\n") + "\r\n";
 }

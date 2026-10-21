@@ -40,6 +40,13 @@ alter table public.graffiti_incidents
   add column if not exists claimed_by        text,                            -- Clerk user id of whoever took the job
   add column if not exists claimed_by_name   text;
 
+-- Invoice details + who did the work (safe to re-run).
+alter table public.graffiti_incidents
+  add column if not exists gkind             text,   -- kind of graffiti: marker, chalk pen, sticker ...
+  add column if not exists surface           text,   -- what it was on: electrical box, brick wall ...
+  add column if not exists chemical          text,   -- what removed it: SSR, graffiti remover ...
+  add column if not exists removed_by_name   text;   -- crew account that finished / took the job (invoice section)
+
 -- Billing settings (rate, minimum minutes, who we bill, time zone ...). One row per setting.
 create table if not exists public.graffiti_settings (
   k text primary key,
@@ -72,3 +79,8 @@ alter table public.graffiti_invoices  enable row level security;
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('graffiti', 'graffiti', false, 5242880, array['image/jpeg'])
 on conflict (id) do nothing;
+
+-- The bucket also holds the owner's invoice spreadsheet template (under templates/), so allow .xlsx too.
+update storage.buckets
+   set allowed_mime_types = array['image/jpeg', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
+ where id = 'graffiti';

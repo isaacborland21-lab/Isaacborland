@@ -4,6 +4,9 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import type { ChangeEvent, FormEvent } from "react";
 import styles from "./graffiti.module.css";
 import {
+  CHEMICAL_OPTIONS,
+  GKIND_OPTIONS,
+  SURFACE_OPTIONS,
   GRAFFITI_STATUSES,
   GRAFFITI_TYPES,
   GraffitiStatus,
@@ -282,9 +285,16 @@ export default function GraffitiTab({ isOwner }: { isOwner: boolean }) {
                   <div className={styles.cardMeta}>
                     {`${typeName(i.gtype)} · ${fmtDate(i.reported_at)}` + (i.duration_min != null ? ` · ${fmtDur(i.duration_min)}` : "")}
                   </div>
-                  {(i.reported_by_name || i.claimed_by_name) && (
+                  {(i.reported_by_name || i.claimed_by_name || i.removed_by_name) && (
                     <div className={styles.cardMeta}>
-                      {[i.reported_by_name ? `Reported by ${i.reported_by_name}` : "", i.claimed_by_name ? `Taken by ${i.claimed_by_me ? "you" : i.claimed_by_name}` : ""]
+                      {[
+                        i.reported_by_name ? `Reported by ${i.reported_by_name}` : "",
+                        i.status === "removed" && i.removed_by_name
+                          ? `Removed by ${i.removed_by_name}`
+                          : i.claimed_by_name
+                            ? `Taken by ${i.claimed_by_me ? "you" : i.claimed_by_name}`
+                            : "",
+                      ]
                         .filter(Boolean)
                         .join(" · ")}
                     </div>
@@ -475,6 +485,68 @@ function MapView({ incidents, active, onOpen }: { incidents: Incident[]; active:
    Log a new incident
    ====================================================================== */
 
+/** A short pick-list plus an "Other" box for anything not on it. The value is plain text. */
+function PickField({
+  id,
+  label,
+  options,
+  value,
+  onChange,
+  disabled,
+}: {
+  id: string;
+  label: string;
+  options: string[];
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+}) {
+  const known = options.filter((o) => o !== "Other");
+  const [other, setOther] = useState(false);
+  const custom = other || (value !== "" && !known.includes(value));
+  const selected = custom ? "__other" : value;
+  return (
+    <div className={styles.pick}>
+      <label className={styles.lbl} htmlFor={id}>
+        {label}
+      </label>
+      <select
+        id={id}
+        value={selected}
+        disabled={disabled}
+        onChange={(e) => {
+          if (e.target.value === "__other") {
+            setOther(true);
+            if (known.includes(value)) onChange("");
+          } else {
+            setOther(false);
+            onChange(e.target.value);
+          }
+        }}
+      >
+        <option value="">Not sure / skip</option>
+        {known.map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+        <option value="__other">Other…</option>
+      </select>
+      {custom && (
+        <input
+          type="text"
+          aria-label={`${label}: describe`}
+          placeholder="Type it in"
+          maxLength={80}
+          value={value}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      )}
+    </div>
+  );
+}
+
 function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; onCreated: (inc: Incident) => void }) {
   const [address, setAddressState] = useState("");
   const [description, setDescription] = useState("");
@@ -485,6 +557,10 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
   const [reportFile, setReportFile] = useState<File | null>(null);
   const [reportPreview, setReportPreview] = useState<string | null>(null);
   const [urgent, setUrgent] = useState(false);
+  const [gkind, setGkind] = useState("");
+  const [surface, setSurface] = useState("");
+  const [chemical, setChemical] = useState("");
+  const [formKey, setFormKey] = useState(0); // remounts the pick-lists after a save so "Other" boxes close
   const [minutes, setMinutes] = useState("");
   const [hint, setHint] = useState("Getting your GPS location...");
   const [picked, setPicked] = useState<{ lat: number; lng: number } | null>(null);
@@ -497,9 +573,12 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
   const [mapErr, setMapErr] = useState<string | null>(null);
 
   // values read after awaits must be current, not stale from the render that started the work
-  const latest = useRef({ address: "", description: "", gtype: "ssr" as GraffitiType });
+  const latest = useRef({ address: "", description: "", gtype: "ssr" as GraffitiType, gkind: "", surface: "", chemical: "" });
   latest.current.description = description;
   latest.current.gtype = gtype;
+  latest.current.gkind = gkind;
+  latest.current.surface = surface;
+  latest.current.chemical = chemical;
   const setAddress = useCallback((v: string) => {
     latest.current.address = v;
     setAddressState(v);
@@ -522,6 +601,8 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
   useEffect(() => {
     const t = readStore("gt_type");
     if (t && (GRAFFITI_TYPES as readonly string[]).includes(t)) setGtype(t as GraffitiType);
+    const c = readStore("gt_chem");
+    if (c) setChemical(c);
   }, []);
 
   // small preview of the report photo
@@ -674,6 +755,9 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
     setMinutes("");
     setReportFile(null);
     setUrgent(false);
+    setGkind("");
+    setSurface("");
+    setFormKey((k) => k + 1);
     setMapOpen(false);
     setOtherOpen(false);
     setHint("Getting your GPS location...");
@@ -708,6 +792,9 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
       fd.set("address", latest.current.address);
       fd.set("gtype", latest.current.gtype);
       fd.set("description", latest.current.description);
+      fd.set("gkind", latest.current.gkind);
+      fd.set("surface", latest.current.surface);
+      fd.set("chemical", latest.current.chemical);
       fd.set("photo_at", String(p.at));
       fd.set("photo", await shrinkPhoto(p.file), "before.jpg");
       const { incident } = await apiJson<{ incident: Incident }>("/api/graffiti/incidents", { method: "POST", body: fd });
@@ -742,6 +829,9 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
       fd.set("address", latest.current.address);
       fd.set("gtype", gtype);
       fd.set("description", description);
+      fd.set("gkind", gkind);
+      fd.set("surface", surface);
+      if (!reporting) fd.set("chemical", chemical);
       if (reporting) {
         if (urgent) fd.set("urgent", "1");
         if (reportFile) fd.set("photo", await shrinkPhoto(reportFile), "report.jpg");
@@ -844,6 +934,23 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
         ))}
       </div>
 
+      <div className={styles.picks} key={formKey}>
+        <PickField id="gt-gkind" label="Kind of graffiti" options={GKIND_OPTIONS} value={gkind} onChange={setGkind} />
+        <PickField id="gt-surface" label="What it's on" options={SURFACE_OPTIONS} value={surface} onChange={setSurface} />
+        {intent === "remove" && (
+          <PickField
+            id="gt-chem"
+            label="Chemical used"
+            options={CHEMICAL_OPTIONS}
+            value={chemical}
+            onChange={(v) => {
+              setChemical(v);
+              writeStore("gt_chem", v);
+            }}
+          />
+        )}
+      </div>
+
       <label className={styles.lbl} htmlFor="gt-desc">
         Notes (optional)
       </label>
@@ -902,7 +1009,7 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
             Take before photo
             <small>Saves the job and starts the timer</small>
           </label>
-          <div className={styles.hint}>Set the tag type first. The clock starts the moment the photo is taken.</div>
+          <div className={styles.hint}>Set the tag details first. The clock starts the moment the photo is taken. You can fix details afterwards on the job.</div>
 
           <details className={styles.details} open={otherOpen} onToggle={(e) => setOtherOpen((e.currentTarget as HTMLDetailsElement).open)}>
             <summary>Already finished? Log it without the timer</summary>
@@ -989,6 +1096,9 @@ function IncidentSheet({
   const [notes, setNotes] = useState(inc.notes ?? "");
   const [mins, setMins] = useState(inc.duration_min != null ? String(inc.duration_min) : "");
   const [gtype, setGtype] = useState<GraffitiType>(inc.gtype);
+  const [gkind, setGkind] = useState(inc.gkind ?? "");
+  const [surface, setSurface] = useState(inc.surface ?? "");
+  const [chemical, setChemical] = useState(inc.chemical ?? "");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -1009,6 +1119,9 @@ function IncidentSheet({
       const fd = new FormData();
       fd.set("address", addr);
       fd.set("gtype", gtype);
+      fd.set("gkind", gkind);
+      fd.set("surface", surface);
+      fd.set("chemical", chemical);
       fd.set("notes", notes);
       fd.set("duration_min", mins);
       for (const [k, v] of Object.entries(extra)) fd.set(k, v);
@@ -1055,9 +1168,16 @@ function IncidentSheet({
         {inc.urgent && inc.status !== "removed" && <span className={`${styles.badge} ${styles.bUrgent}`} style={{ marginLeft: 6 }}>Urgent</span>}
         <h2>{inc.address || `${inc.lat.toFixed(5)}, ${inc.lng.toFixed(5)}`}</h2>
         <div className={styles.small}>{meta}</div>
-        {(inc.reported_by_name || inc.claimed_by_name) && (
+        {(inc.reported_by_name || inc.claimed_by_name || inc.removed_by_name) && (
           <div className={styles.small} data-testid="sheet-people">
-            {[inc.reported_by_name ? `Reported by ${inc.reported_by_name}` : "", inc.claimed_by_name ? `Taken by ${inc.claimed_by_me ? "you" : inc.claimed_by_name}` : ""]
+            {[
+              inc.reported_by_name ? `Reported by ${inc.reported_by_name}` : "",
+              inc.status === "removed" && inc.removed_by_name
+                ? `Removed by ${inc.removed_by_name}`
+                : inc.claimed_by_name
+                  ? `Taken by ${inc.claimed_by_me ? "you" : inc.claimed_by_name}`
+                  : "",
+            ]
               .filter(Boolean)
               .join(" · ")}
           </div>
@@ -1207,6 +1327,10 @@ function IncidentSheet({
             </option>
           ))}
         </select>
+
+        <PickField id="gs-gkind" label="Kind of graffiti" options={GKIND_OPTIONS} value={gkind} onChange={setGkind} />
+        <PickField id="gs-surface" label="What it's on" options={SURFACE_OPTIONS} value={surface} onChange={setSurface} />
+        <PickField id="gs-chem" label="Chemical used" options={CHEMICAL_OPTIONS} value={chemical} onChange={setChemical} />
 
         <label className={styles.lbl} htmlFor="gs-notes">
           Notes
