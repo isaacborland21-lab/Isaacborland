@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { buildInvoice, InvoiceRow } from "@/lib/graffiti";
 import { buildInvoiceXlsx } from "@/lib/invoiceXlsx";
-import { BUCKET, fail, isResponse, requireGraffiti, TEMPLATE_PATH } from "@/lib/graffitiServer";
+import { BUCKET, fail, isResponse, requireGraffiti, requireInvoice, TEMPLATE_PATH } from "@/lib/graffitiServer";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -14,9 +14,9 @@ const XLSX_MAGIC = [0x50, 0x4b, 0x03, 0x04]; // an .xlsx is a zip file
 // The invoice layout is the owner's own spreadsheet. It lives in the private storage bucket (the code
 // is public, the logo and letterhead are not), so it is uploaded once from the invoice page.
 
-/** Is a template stored? Owner only. */
+/** Is a template stored? Owner, or crew with the invoice switch (they need to know whether the download works). */
 export async function GET() {
-  const who = await requireGraffiti(true);
+  const who = await requireInvoice();
   if (isResponse(who)) return who;
   const db = getSupabaseAdmin();
   const { data, error } = await db.storage.from(BUCKET).list("templates", { limit: 10 });

@@ -35,6 +35,7 @@ type InvoiceData = {
   months: MonthRow[];
   unbilled: string[];
   invoiceNo: string;
+  viewer?: { owner: boolean };
   today: string;
 };
 
@@ -200,6 +201,8 @@ export default function InvoicePage() {
   }
 
   const { build, snapshot: inv, settings: S, month: m, currentMonth } = data;
+  // crew accounts with the invoice switch can view, download and mark; rates, the template and "undo" stay with the owner
+  const isOwner = data.viewer?.owner !== false;
   const tz = S.tz;
   const bill = billingFor(S, inv);
   const { rateCents, minMin, roundTo } = bill;
@@ -284,11 +287,15 @@ export default function InvoicePage() {
                   Matches what was invoiced: no tags added, removed or changed since.
                 </span>
               )}
-              <div style={{ marginTop: 8 }}>
-                <button type="button" className={`${styles.btn} ${styles.red}`} disabled={busy} onClick={unmark}>
-                  Undo &quot;invoiced&quot;
-                </button>
-              </div>
+              {isOwner ? (
+                <div style={{ marginTop: 8 }}>
+                  <button type="button" className={`${styles.btn} ${styles.red}`} disabled={busy} onClick={unmark}>
+                    Undo &quot;invoiced&quot;
+                  </button>
+                </div>
+              ) : (
+                <span className={styles.sub}>Only the owner can undo this.</span>
+              )}
             </div>
             {data.diff.added.length > 0 && (
               <div className={`${styles.panel} ${styles.warn}`}>
@@ -342,7 +349,7 @@ export default function InvoicePage() {
 
         {rateCents === 0 && (
           <div className={`${styles.panel} ${styles.warn}`}>
-            <b>Hourly rate is not set</b>, so amounts show as $0.00. Open <i>Billing settings</i> below and enter your rate.
+            <b>Hourly rate is not set</b>, so amounts show as $0.00. {isOwner ? <>Open <i>Billing settings</i> below and enter your rate.</> : "Ask the owner to set it."}
           </div>
         )}
         {(warn.notime.length > 0 || warn.noaddr.length > 0 || warn.noafter.length > 0) && (
@@ -371,10 +378,14 @@ export default function InvoicePage() {
           </p>
           <p className={styles.sub}>
             {tpl?.exists
-              ? "Your template is saved. Upload a new .xlsx only if you change the layout."
-              : "Download your invoice sheet from Google Sheets (File → Download → Microsoft Excel .xlsx) and upload it here once."}
+              ? isOwner
+                ? "Your template is saved. Upload a new .xlsx only if you change the layout."
+                : "The invoice layout is saved. Use the download button above."
+              : isOwner
+                ? "Download your invoice sheet from Google Sheets (File → Download → Microsoft Excel .xlsx) and upload it here once."
+                : "The owner has not uploaded the invoice layout yet."}
           </p>
-          <input
+          {isOwner && <input
             type="file"
             accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             disabled={busy}
@@ -384,7 +395,7 @@ export default function InvoicePage() {
               e.target.value = "";
               if (f) void uploadTemplate(f);
             }}
-          />
+          />}
         </details>
 
         <details className={styles.panel} open={data.unbilled.length > 0}>
@@ -441,7 +452,7 @@ export default function InvoicePage() {
           )}
         </details>
 
-        <details className={styles.panel}>
+        {isOwner && <details className={styles.panel}>
           <summary style={{ cursor: "pointer", fontWeight: 700 }}>Billing settings (saved for every new invoice)</summary>
           {draft && (
             <form onSubmit={saveSettings} style={{ marginTop: 12 }}>
@@ -505,7 +516,7 @@ export default function InvoicePage() {
               </p>
             </form>
           )}
-        </details>
+        </details>}
       </div>
 
       {/* ------------------------------ the invoice ------------------------------ */}

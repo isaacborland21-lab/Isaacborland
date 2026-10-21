@@ -179,6 +179,23 @@ export type NewIncident = {
  * mode "report": spotted, no work yet.
  * mode "done":   already finished (minutes typed in).
  */
+/** The tag details the crew must fill in before any photo is taken (chemical only once someone is actually removing it). */
+export const DETAIL_LABELS = { gkind: "the kind of graffiti", surface: "what it's on", chemical: "the chemical used" } as const;
+
+/** Names of the required details that are still blank, in form order. */
+export function missingDetails(v: { gkind?: string | null; surface?: string | null; chemical?: string | null }, needChemical: boolean): string[] {
+  const out: string[] = [];
+  if (!(v.gkind ?? "").trim()) out.push(DETAIL_LABELS.gkind);
+  if (!(v.surface ?? "").trim()) out.push(DETAIL_LABELS.surface);
+  if (needChemical && !(v.chemical ?? "").trim()) out.push(DETAIL_LABELS.chemical);
+  return out;
+}
+
+export function detailsMessage(missing: string[]): string {
+  const list = missing.length > 1 ? `${missing.slice(0, -1).join(", ")} and ${missing[missing.length - 1]}` : missing[0];
+  return `Fill in ${list} first.`;
+}
+
 export function computeCreate(fields: Fields, nowMs: number): Ok<{ row: NewIncident }> | Fail {
   const lat = parseCoord(fields.lat, 90);
   const lng = parseCoord(fields.lng, 180);
@@ -186,6 +203,8 @@ export function computeCreate(fields: Fields, nowMs: number): Ok<{ row: NewIncid
 
   const gtype: GraffitiType = isType(fields.gtype) ? fields.gtype : "other";
   const mode = fields.mode === "start" || fields.mode === "done" ? fields.mode : "report";
+  const lacking = missingDetails({ gkind: fields.gkind, surface: fields.surface, chemical: fields.chemical }, mode !== "report");
+  if (lacking.length > 0) return { ok: false, error: detailsMessage(lacking) };
 
   let status: GraffitiStatus = "reported";
   let started: string | null = null;
@@ -232,6 +251,10 @@ export type CurrentIncident = {
   started_at: string | null;
   finished_at: string | null;
   removed_at: string | null;
+  /** needed so starting / finishing can check the required details; absent = treated as blank */
+  gkind?: string | null;
+  surface?: string | null;
+  chemical?: string | null;
 };
 
 export type IncidentPatch = Partial<{
@@ -342,6 +365,19 @@ export function computeUpdate(
   if (has("claim")) {
     if (fields.claim !== "me" && fields.claim !== "release") return { ok: false, error: "Bad claim" };
     patch.claim = fields.claim;
+  }
+
+  // starting or finishing the job needs the details (what the row already has, or what is being sent now)
+  if (fields.act === "start" || fields.act === "finish") {
+    const lacking = missingDetails(
+      {
+        gkind: "gkind" in patch ? patch.gkind : row.gkind,
+        surface: "surface" in patch ? patch.surface : row.surface,
+        chemical: "chemical" in patch ? patch.chemical : row.chemical,
+      },
+      true,
+    );
+    if (lacking.length > 0) return { ok: false, error: detailsMessage(lacking) };
   }
 
   if (Object.keys(patch).length === 0 && !hasNewPhoto) return { ok: false, error: "Nothing to update" };

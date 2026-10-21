@@ -149,7 +149,7 @@ export default function CrewPage() {
           )}
         </header>
         <div className="tab-content">
-          <GraffitiTab isOwner={isOwner} />
+          <GraffitiTab isOwner={isOwner} canInvoice={isOwner || meta.tabAdmin?.invoice === true} />
         </div>
       </main>
     </>

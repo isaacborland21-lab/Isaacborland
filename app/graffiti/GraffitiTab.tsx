@@ -17,6 +17,8 @@ import {
   TYPE_NAMES,
   fmtDur,
   typeName,
+  detailsMessage,
+  missingDetails,
 } from "@/lib/graffiti";
 import {
   LeafletNS,
@@ -101,7 +103,7 @@ const offCenterPx = (map: any, lat: number, lng: number): number => {
   return Math.hypot(p.x - size.x / 2, p.y - size.y / 2);
 };
 
-export default function GraffitiTab({ isOwner }: { isOwner: boolean }) {
+export default function GraffitiTab({ isOwner, canInvoice = isOwner }: { isOwner: boolean; canInvoice?: boolean }) {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [truncated, setTruncated] = useState(false);
@@ -198,7 +200,7 @@ export default function GraffitiTab({ isOwner }: { isOwner: boolean }) {
     <div className={styles.root}>
       <div className={styles.head}>
         <h2 className={styles.title}>Graffiti removal tracker</h2>
-        {isOwner && (
+        {(isOwner || canInvoice) && (
           <a className={styles.headLink} href="/graffiti/invoice">
             Invoice →
           </a>
@@ -493,6 +495,8 @@ function PickField({
   value,
   onChange,
   disabled,
+  required,
+  invalid,
 }: {
   id: string;
   label: string;
@@ -500,6 +504,9 @@ function PickField({
   value: string;
   onChange: (v: string) => void;
   disabled?: boolean;
+  /** shows the asterisk; `invalid` (after a blocked attempt) outlines it in red */
+  required?: boolean;
+  invalid?: boolean;
 }) {
   const known = options.filter((o) => o !== "Other");
   const [other, setOther] = useState(false);
@@ -509,11 +516,15 @@ function PickField({
     <div className={styles.pick}>
       <label className={styles.lbl} htmlFor={id}>
         {label}
+        {required && <span className={styles.req}> *</span>}
       </label>
       <select
         id={id}
         value={selected}
         disabled={disabled}
+        aria-required={required || undefined}
+        aria-invalid={invalid || undefined}
+        className={invalid ? styles.invalid : undefined}
         onChange={(e) => {
           if (e.target.value === "__other") {
             setOther(true);
@@ -524,7 +535,7 @@ function PickField({
           }
         }}
       >
-        <option value="">Not sure / skip</option>
+        <option value="">{required ? "Choose…" : "Not sure / skip"}</option>
         {known.map((o) => (
           <option key={o} value={o}>
             {o}
@@ -540,6 +551,8 @@ function PickField({
           maxLength={80}
           value={value}
           disabled={disabled}
+          aria-invalid={invalid || undefined}
+          className={invalid ? styles.invalid : undefined}
           onChange={(e) => onChange(e.target.value)}
         />
       )}
@@ -560,6 +573,7 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
   const [gkind, setGkind] = useState("");
   const [surface, setSurface] = useState("");
   const [chemical, setChemical] = useState("");
+  const [showErr, setShowErr] = useState(false); // outline the blank required details after a blocked photo
   const [formKey, setFormKey] = useState(0); // remounts the pick-lists after a save so "Other" boxes close
   const [minutes, setMinutes] = useState("");
   const [hint, setHint] = useState("Getting your GPS location...");
@@ -583,6 +597,16 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
     latest.current.address = v;
     setAddressState(v);
   }, []);
+
+  // the kind of graffiti and what it's on are needed before any photo; the chemical too once you are removing it
+  const lacking = missingDetails({ gkind, surface, chemical }, intent === "remove");
+  const locked = lacking.length > 0;
+  function blockIfLocked(): boolean {
+    if (!locked) return false;
+    setShowErr(true);
+    toast(detailsMessage(lacking));
+    return true;
+  }
 
   const pickedRef = useRef<{ lat: number; lng: number } | null>(null);
   const dirty = useRef(false); // the crew typed their own address: don't overwrite it
@@ -757,6 +781,7 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
     setUrgent(false);
     setGkind("");
     setSurface("");
+    setShowErr(false);
     setFormKey((k) => k + 1);
     setMapOpen(false);
     setOtherOpen(false);
@@ -768,6 +793,7 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
     const f = e.target.files?.[0];
     e.target.value = "";
     if (!f) return;
+    if (blockIfLocked()) return;
     // keep the earliest photo time if a previous save attempt failed
     setPending((p) => ({ file: f, at: p ? p.at : Date.now() }));
     if (!pickedRef.current) {
@@ -817,6 +843,7 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
   // secondary path: no photo timer (report only / already done)
   async function onSubmit(ev: FormEvent) {
     ev.preventDefault();
+    if (blockIfLocked()) return;
     const pk = pickedRef.current;
     if (!pk) return toast("Still waiting on GPS. Open Adjust pin on map and move the map to the spot.");
     setSaving(true);
@@ -935,13 +962,15 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
       </div>
 
       <div className={styles.picks} key={formKey}>
-        <PickField id="gt-gkind" label="Kind of graffiti" options={GKIND_OPTIONS} value={gkind} onChange={setGkind} />
-        <PickField id="gt-surface" label="What it's on" options={SURFACE_OPTIONS} value={surface} onChange={setSurface} />
+        <PickField id="gt-gkind" label="Kind of graffiti" options={GKIND_OPTIONS} value={gkind} onChange={setGkind} required invalid={showErr && !gkind.trim()} />
+        <PickField id="gt-surface" label="What it's on" options={SURFACE_OPTIONS} value={surface} onChange={setSurface} required invalid={showErr && !surface.trim()} />
         {intent === "remove" && (
           <PickField
             id="gt-chem"
             label="Chemical used"
             options={CHEMICAL_OPTIONS}
+            required
+            invalid={showErr && !chemical.trim()}
             value={chemical}
             onChange={(v) => {
               setChemical(v);
@@ -973,16 +1002,19 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
           </label>
 
           <span className={styles.lbl}>Photo of the tag (recommended)</span>
-          <label className={`${styles.photobtn} ${styles.reportPhoto}`}>
+          <label className={`${styles.photobtn} ${styles.reportPhoto} ${locked ? styles.locked : ""}`}>
             <input
               type="file"
               accept="image/*"
               capture="environment"
               data-testid="report-input"
+              onClick={(e) => {
+                if (blockIfLocked()) e.preventDefault();
+              }}
               onChange={(e) => {
                 const f = e.target.files?.[0];
                 e.target.value = "";
-                if (f) setReportFile(f);
+                if (f && !blockIfLocked()) setReportFile(f);
               }}
             />
             {reportFile ? "Retake photo" : "Take photo of the tag"}
@@ -1004,12 +1036,25 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
         </Fragment>
       ) : (
         <Fragment key="remove">
-          <label className={`${styles.photobtn} ${busy ? styles.busy : ""}`}>
-            <input type="file" accept="image/*" capture="environment" data-testid="before-input" onChange={onBeforePhoto} />
+          <label className={`${styles.photobtn} ${busy ? styles.busy : ""} ${locked ? styles.locked : ""}`}>
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              data-testid="before-input"
+              onClick={(e) => {
+                if (blockIfLocked()) e.preventDefault();
+              }}
+              onChange={onBeforePhoto}
+            />
             Take before photo
-            <small>Saves the job and starts the timer</small>
+            <small>{locked ? "Fill in the details above first" : "Saves the job and starts the timer"}</small>
           </label>
-          <div className={styles.hint}>Set the tag details first. The clock starts the moment the photo is taken. You can fix details afterwards on the job.</div>
+          <div className={styles.hint} data-testid="detail-hint">
+            {locked
+              ? `Needed before the photo: ${lacking.join(", ")}.`
+              : "The clock starts the moment the photo is taken. You can fix details afterwards on the job."}
+          </div>
 
           <details className={styles.details} open={otherOpen} onToggle={(e) => setOtherOpen((e.currentTarget as HTMLDetailsElement).open)}>
             <summary>Already finished? Log it without the timer</summary>
@@ -1057,18 +1102,43 @@ function PhotoFig({ label, name }: { label: string; name: string | null }) {
   );
 }
 
-function PhotoButton({ text, sub, go, disabled, onPhoto }: { text: string; sub: string; go?: boolean; disabled: boolean; onPhoto: (f: File, at: number) => void }) {
+function PhotoButton({
+  text,
+  sub,
+  go,
+  disabled,
+  locked,
+  onBlocked,
+  onPhoto,
+}: {
+  text: string;
+  sub: string;
+  go?: boolean;
+  disabled: boolean;
+  /** required details are missing: the camera does not open */
+  locked?: boolean;
+  onBlocked?: () => void;
+  onPhoto: (f: File, at: number) => void;
+}) {
   return (
-    <label className={`${styles.photobtn} ${go ? styles.go : ""} ${disabled ? styles.busy : ""}`}>
+    <label className={`${styles.photobtn} ${go ? styles.go : ""} ${disabled ? styles.busy : ""} ${locked ? styles.locked : ""}`}>
       <input
         type="file"
         accept="image/*"
         capture="environment"
         data-testid={go ? "after-input" : "start-input"}
+        onClick={(e) => {
+          if (locked) {
+            e.preventDefault();
+            onBlocked?.();
+          }
+        }}
         onChange={(e) => {
           const f = e.target.files?.[0];
           e.target.value = "";
-          if (f) onPhoto(f, Date.now());
+          if (!f) return;
+          if (locked) return onBlocked?.();
+          onPhoto(f, Date.now());
         }}
       />
       {text}
@@ -1100,6 +1170,16 @@ function IncidentSheet({
   const [surface, setSurface] = useState(inc.surface ?? "");
   const [chemical, setChemical] = useState(inc.chemical ?? "");
   const [busy, setBusy] = useState(false);
+  const [showErr, setShowErr] = useState(false);
+  // starting or finishing needs all three details (what the crew typed here counts)
+  const lacking = missingDetails({ gkind, surface, chemical }, true);
+  const locked = lacking.length > 0;
+  function blocked(): boolean {
+    if (!locked) return false;
+    setShowErr(true);
+    toast(detailsMessage(lacking));
+    return true;
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -1245,11 +1325,13 @@ function IncidentSheet({
               go
               disabled={busy}
               text="Take after photo"
-              sub="Finishes the job and stops the timer"
+              sub={locked ? "Fill in the details below first" : "Finishes the job and stops the timer"}
+              locked={locked}
+              onBlocked={blocked}
               onPhoto={(f, at) => save({ act: "finish", photo_at: String(at) }, f, "Job finished")}
             />
             <div style={{ textAlign: "center" }}>
-              <button type="button" className={styles.linkbtn} disabled={busy} onClick={() => save({ act: "finish" }, undefined, "Job finished")}>
+              <button type="button" className={styles.linkbtn} disabled={busy} onClick={() => !blocked() && save({ act: "finish" }, undefined, "Job finished")}>
                 Finish without a photo
               </button>
             </div>
@@ -1260,11 +1342,13 @@ function IncidentSheet({
             <PhotoButton
               disabled={busy}
               text="Take before photo"
-              sub="Starts the timer"
+              sub={locked ? "Fill in the details below first" : "Starts the timer"}
+              locked={locked}
+              onBlocked={blocked}
               onPhoto={(f, at) => save({ act: "start", photo_at: String(at) }, f, "Timer started")}
             />
             <div style={{ textAlign: "center" }}>
-              <button type="button" className={styles.linkbtn} disabled={busy} onClick={() => save({ act: "start" }, undefined, "Timer started")}>
+              <button type="button" className={styles.linkbtn} disabled={busy} onClick={() => !blocked() && save({ act: "start" }, undefined, "Timer started")}>
                 Start timer without a photo
               </button>
             </div>
@@ -1328,9 +1412,9 @@ function IncidentSheet({
           ))}
         </select>
 
-        <PickField id="gs-gkind" label="Kind of graffiti" options={GKIND_OPTIONS} value={gkind} onChange={setGkind} />
-        <PickField id="gs-surface" label="What it's on" options={SURFACE_OPTIONS} value={surface} onChange={setSurface} />
-        <PickField id="gs-chem" label="Chemical used" options={CHEMICAL_OPTIONS} value={chemical} onChange={setChemical} />
+        <PickField id="gs-gkind" label="Kind of graffiti" options={GKIND_OPTIONS} value={gkind} onChange={setGkind} required={inc.status !== "removed"} invalid={showErr && !gkind.trim()} />
+        <PickField id="gs-surface" label="What it's on" options={SURFACE_OPTIONS} value={surface} onChange={setSurface} required={inc.status !== "removed"} invalid={showErr && !surface.trim()} />
+        <PickField id="gs-chem" label="Chemical used" options={CHEMICAL_OPTIONS} value={chemical} onChange={setChemical} required={inc.status !== "removed"} invalid={showErr && !chemical.trim()} />
 
         <label className={styles.lbl} htmlFor="gs-notes">
           Notes
