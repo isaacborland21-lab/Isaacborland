@@ -53,6 +53,26 @@ taken. The owner prints a monthly invoice for the city from `/graffiti/invoice`.
   owner) can give it back.
 - Existing installs: re-run `supabase/graffiti.sql`. It adds the new columns and is safe to re-run.
 
+**Google Sheets invoice (one section per crew member)**
+
+- Each finished tag is credited to whoever took the job (else whoever finished it,
+  else whoever reported/logged it), using the name on their login. The on-screen
+  invoice and the CSV group by that person with a subtotal each.
+- The crew can also record the **kind of graffiti**, **what it is on** and the
+  **chemical used**. They are in the CSV and the sheet's Instance Reporting tab.
+- Invoice page → *Google Sheets invoice*: upload your own invoice sheet **once**
+  (Google Sheets → File → Download → Microsoft Excel .xlsx). It is kept in the
+  private `graffiti` bucket, not in this repo (it has your logo and letterhead).
+  After that, *Download for Google Sheets* builds the month in that exact layout;
+  open it in Drive with Google Sheets. Re-upload only if you change the layout.
+- The sheet always bills in half-hour steps with a half-hour minimum (that is what
+  the template's formulas do). To make the on-screen invoice match, set
+  *Round time up to nearest* to 30 min in Billing settings.
+- Sections are written into the file when you download it. If you edit jobs in the
+  sheet afterwards, it will not regroup; fix the job in the tracker and download again.
+- Existing installs: re-run `supabase/graffiti.sql` (adds the new columns and lets
+  the bucket accept .xlsx).
+
 **How billing works**
 
 - Each tag bills at least the configured minimum (default 30 min). The actual

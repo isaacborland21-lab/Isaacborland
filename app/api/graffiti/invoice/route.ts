@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { buildInvoiceXlsx } from "@/lib/invoiceXlsx";
 import {
   buildCsv,
   buildInvoice,
@@ -12,6 +13,8 @@ import {
   unbilledMonths,
 } from "@/lib/graffiti";
 import {
+  BUCKET,
+  TEMPLATE_PATH,
   billingFor,
   defaultInvoiceNo,
   fail,
@@ -23,6 +26,12 @@ import {
 } from "@/lib/graffitiServer";
 
 export const dynamic = "force-dynamic";
+
+/** Last day of a YYYY-MM month as YYYY-MM-DD (the template's Date box shows the month end). */
+function monthEnd(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  return `${month}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}`;
+}
 export const revalidate = 0;
 export const fetchCache = "force-no-store";
 
@@ -30,6 +39,7 @@ export const fetchCache = "force-no-store";
 
 // GET /api/graffiti/invoice?month=YYYY-MM           -> the invoice for that month (JSON)
 // GET /api/graffiti/invoice?month=YYYY-MM&format=csv -> spreadsheet for your own records
+// GET /api/graffiti/invoice?month=YYYY-MM&format=xlsx&date=YYYY-MM-DD -> the invoice in your template's layout (opens in Google Sheets)
 export async function GET(request: Request) {
   const who = await requireGraffiti(true);
   if (isResponse(who)) return who;
@@ -59,6 +69,37 @@ export async function GET(request: Request) {
           "Cache-Control": "no-store",
         },
       });
+    }
+
+    if (url.searchParams.get("format") === "xlsx") {
+      const { data: file, error: dlErr } = await db.storage.from(BUCKET).download(TEMPLATE_PATH);
+      if (dlErr || !file) return fail("Upload your invoice template first (Invoice page → Google Sheets invoice).", 404);
+      if (build.tot.jobs === 0) return fail(`There are no finished tags in ${month} to invoice.`, 400);
+      // The template bills in half-hour steps with a half-hour minimum (that is what its formulas do),
+      // so the sheet always uses 30 / 30 whatever the on-screen rounding setting is.
+      const sheetBuild = buildInvoice(rows, { month, tz, rateCents: bill.rateCents, minMin: 30, roundTo: 30 });
+      const dateParam = url.searchParams.get("date") ?? "";
+      const invoiceDate = /^\d{4}-\d{2}-\d{2}$/.test(dateParam) && !Number.isNaN(Date.parse(dateParam)) ? dateParam : snapshot?.invoice_date ?? monthEnd(month);
+      try {
+        const bytes = await buildInvoiceXlsx(new Uint8Array(await file.arrayBuffer()), sheetBuild, {
+          invoiceDate,
+          invoiceNo,
+          poNumber: settings.po_number,
+          terms: settings.terms,
+          billTo: settings.bill_to.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(0, 5),
+          rateCents: bill.rateCents,
+          tz,
+        });
+        return new Response(bytes as unknown as BodyInit, {
+          headers: {
+            "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "Content-Disposition": `attachment; filename="graffiti-invoice-${month}.xlsx"`,
+            "Cache-Control": "no-store",
+          },
+        });
+      } catch (e) {
+        return fail(e instanceof Error ? e.message : "Could not build the spreadsheet.", 500);
+      }
     }
 
     const diff = snapshot ? diffSnapshot(snapshot.job_ids, build.ids) : { added: [] as number[], dropped: [] as number[] };

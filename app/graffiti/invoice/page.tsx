@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import styles from "./invoice.module.css";
 import {
   BillingSettings,
@@ -55,6 +55,32 @@ export default function InvoicePage() {
   const [invDate, setInvDate] = useState("");
   const [showPhotos, setShowPhotos] = useState(true);
   const [draft, setDraft] = useState<BillingSettings | null>(null);
+  // the owner's invoice spreadsheet template (kept in private storage, uploaded once)
+  const [tpl, setTpl] = useState<{ exists: boolean; updated_at: string | null } | null>(null);
+  const loadTpl = useCallback(async () => {
+    try {
+      setTpl(await apiJson<{ exists: boolean; updated_at: string | null }>("/api/graffiti/invoice/template"));
+    } catch {
+      setTpl(null);
+    }
+  }, []);
+  useEffect(() => {
+    void loadTpl();
+  }, [loadTpl]);
+
+  async function uploadTemplate(file: File) {
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.set("file", file);
+      await apiJson("/api/graffiti/invoice/template", { method: "POST", body: fd });
+      setFlash({ kind: "ok", text: "Invoice template saved." });
+      await loadTpl();
+    } catch (e) {
+      setFlash({ kind: "bad", text: errMsg(e) });
+    }
+    setBusy(false);
+  }
 
   useEffect(() => {
     document.title = "Invoice · Isaac Borland";
@@ -183,6 +209,7 @@ export default function InvoicePage() {
   const addedCents = addedLines.reduce((a, l) => a + l.cents, 0);
   const noteNo = invNo.trim() || defaultInvoiceNo(m);
   const csvHref = `/api/graffiti/invoice?month=${m}&format=csv&inv=${encodeURIComponent(noteNo)}`;
+  const xlsxHref = `/api/graffiti/invoice?month=${m}&format=xlsx&inv=${encodeURIComponent(noteNo)}${invDate ? `&date=${invDate}` : ""}`;
 
   return (
     <div className={styles.page} aria-busy={loading}>
@@ -229,6 +256,11 @@ export default function InvoicePage() {
             <button type="button" className={styles.btn} onClick={() => window.print()}>
               Print / Save as PDF
             </button>
+            {tpl?.exists && tot.jobs > 0 && (
+              <a className={`${styles.btn} ${styles.green}`} href={xlsxHref} data-testid="xlsx-link">
+                Download for Google Sheets (.xlsx)
+              </a>
+            )}
             <a className={`${styles.btn} ${styles.sec}`} href={csvHref}>
               Download CSV (with actual times)
             </a>
@@ -327,6 +359,33 @@ export default function InvoicePage() {
             </ul>
           </div>
         )}
+
+        <details className={styles.panel} open={tpl !== null && !tpl.exists} data-testid="template-panel">
+          <summary style={{ cursor: "pointer", fontWeight: 700 }}>
+            Google Sheets invoice {tpl?.exists ? "(template saved)" : tpl ? "(upload your template first)" : ""}
+          </summary>
+          <p className={styles.sub} style={{ marginTop: 8 }}>
+            The download builds your own invoice layout (letterhead, logo, Bill To, columns) with one section per crew member and a subtotal for each, and an
+            Instance Reporting tab listing every job. It always bills in half-hour steps with a half-hour minimum, like your sheet does. Open the file in Google
+            Sheets (Drive → New → File upload → open with Google Sheets).
+          </p>
+          <p className={styles.sub}>
+            {tpl?.exists
+              ? "Your template is saved. Upload a new .xlsx only if you change the layout."
+              : "Download your invoice sheet from Google Sheets (File → Download → Microsoft Excel .xlsx) and upload it here once."}
+          </p>
+          <input
+            type="file"
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            disabled={busy}
+            data-testid="template-input"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) void uploadTemplate(f);
+            }}
+          />
+        </details>
 
         <details className={styles.panel} open={data.unbilled.length > 0}>
           <summary style={{ cursor: "pointer", fontWeight: 700 }}>Invoice status by month</summary>
@@ -503,33 +562,55 @@ export default function InvoicePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {lines.map((r, k) => {
-                    const fin = r.finished_at ?? r.removed_at;
-                    return (
-                      <tr key={r.id}>
-                        <td>{k + 1}</td>
-                        <td>{fmtShortDate(r.removed_at, tz)}</td>
-                        <td>
-                          {r.address || `${r.lat}, ${r.lng}`}
-                          {r.notes && r.notes.trim() !== "" && <span className={styles.sub}>{r.notes}</span>}
-                        </td>
-                        <td>{TYPE_NAMES[r.type]}</td>
-                        <td className={styles.n}>
-                          {r.actual === null ? <span className={styles.min}>not recorded</span> : `${r.actual} min`}
-                          {r.started_at && fin && (
-                            <span className={styles.sub}>
-                              {fmtClock(r.started_at, tz)} - {fmtClock(fin, tz)}
-                            </span>
-                          )}
-                        </td>
-                        <td className={styles.n}>
-                          {r.billed} min
-                          {r.minApplied && <span className={`${styles.sub} ${styles.min}`}>minimum</span>}
-                        </td>
-                        <td className={styles.n}>{money(r.cents)}</td>
-                      </tr>
-                    );
-                  })}
+                  {(() => {
+                    let k = 0;
+                    return build.people.map((p) => (
+                      <Fragment key={p.name}>
+                        <tr className={styles.person} data-testid="person-row">
+                          <td colSpan={7}>
+                            <b>{p.name}</b> <span className={styles.sub} style={{ display: "inline" }}>{plural(p.tot.jobs, "tag")}</span>
+                          </td>
+                        </tr>
+                        {p.lines.map((r) => {
+                          k += 1;
+                          const fin = r.finished_at ?? r.removed_at;
+                          const detail = [r.gkind, r.surface && `on ${r.surface}`].filter(Boolean).join(" ");
+                          return (
+                            <tr key={r.id}>
+                              <td>{k}</td>
+                              <td>{fmtShortDate(r.removed_at, tz)}</td>
+                              <td>
+                                {r.address || `${r.lat}, ${r.lng}`}
+                                {detail && <span className={styles.sub}>{detail}</span>}
+                                {r.notes && r.notes.trim() !== "" && <span className={styles.sub}>{r.notes}</span>}
+                              </td>
+                              <td>{TYPE_NAMES[r.type]}</td>
+                              <td className={styles.n}>
+                                {r.actual === null ? <span className={styles.min}>not recorded</span> : `${r.actual} min`}
+                                {r.started_at && fin && (
+                                  <span className={styles.sub}>
+                                    {fmtClock(r.started_at, tz)} - {fmtClock(fin, tz)}
+                                  </span>
+                                )}
+                              </td>
+                              <td className={styles.n}>
+                                {r.billed} min
+                                {r.minApplied && <span className={`${styles.sub} ${styles.min}`}>minimum</span>}
+                              </td>
+                              <td className={styles.n}>{money(r.cents)}</td>
+                            </tr>
+                          );
+                        })}
+                        <tr className={styles.subtotal} data-testid="person-subtotal">
+                          <td colSpan={5} className={styles.n}>
+                            Subtotal: {p.name}
+                          </td>
+                          <td className={styles.n}>{hours(p.tot.billed)}</td>
+                          <td className={styles.n}>{money(p.tot.cents)}</td>
+                        </tr>
+                      </Fragment>
+                    ));
+                  })()}
                 </tbody>
               </table>
             </div>

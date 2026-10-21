@@ -217,3 +217,20 @@
   .sheet thead { display: table-header-group; }
   .photosPage { break-before: page; margin-top: 0; }
 }
+
+/* per-person sections on the on-screen invoice */
+.person td {
+  background: #f1f1f1;
+  border-top: 2px solid #222;
+}
+.subtotal td {
+  font-weight: 700;
+  border-top: 1px solid #999;
+}
+@media print {
+  .person td {
+    background: #eee !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

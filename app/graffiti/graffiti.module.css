@@ -618,3 +618,20 @@
 
 .claimBox { margin-top: 14px; }
 .claimBox .linkbtn { display: block; margin: 6px auto 0; }
+
+/* pick-lists for kind of graffiti / surface / chemical */
+.picks {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2px;
+}
+.pick {
+  margin-top: 10px;
+}
+.pick select,
+.pick input[type="text"] {
+  width: 100%;
+}
+.pick input[type="text"] {
+  margin-top: 6px;
+}
