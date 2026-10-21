@@ -43,7 +43,8 @@ export async function GET() {
 }
 
 // Log a new incident. multipart/form-data (fields + optional `photo`) or JSON.
-// A photo here is the BEFORE photo; with mode=start it also starts the clock at the moment it was taken.
+// A photo here is the BEFORE photo (mode=start also starts the clock at the moment it was taken),
+// or, for mode=report, the REPORT photo: what the tag looked like when somebody spotted it.
 export async function POST(request: Request) {
   const who = await requireGraffiti();
   if (isResponse(who)) return who;
@@ -66,7 +67,16 @@ export async function POST(request: Request) {
 
   const { data, error } = await db
     .from("graffiti_incidents")
-    .insert({ ...made.row, before_photo: photoName, created_by: who.userId })
+    .insert({
+      ...made.row,
+      ...(input.fields.mode === "report" || (input.fields.mode !== "start" && input.fields.mode !== "done")
+        ? { report_photo: photoName }
+        : { before_photo: photoName }),
+      reported_by_name: who.name,
+      // starting a job yourself means you have taken it
+      ...(made.row.status === "in_progress" ? { claimed_by: who.userId, claimed_by_name: who.name } : {}),
+      created_by: who.userId,
+    })
     .select(INCIDENT_COLS)
     .single();
   if (error || !data) {

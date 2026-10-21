@@ -32,6 +32,14 @@ create table if not exists public.graffiti_incidents (
 create index if not exists graffiti_incidents_reported_idx on public.graffiti_incidents (reported_at desc);
 create index if not exists graffiti_incidents_removed_idx  on public.graffiti_incidents (removed_at) where removed_at is not null;
 
+-- Reporting / multi-device additions (safe to re-run; older installs get the new columns here).
+alter table public.graffiti_incidents
+  add column if not exists report_photo      text,                            -- photo of the tag as first reported
+  add column if not exists reported_by_name  text,
+  add column if not exists urgent            boolean not null default false,
+  add column if not exists claimed_by        text,                            -- Clerk user id of whoever took the job
+  add column if not exists claimed_by_name   text;
+
 -- Billing settings (rate, minimum minutes, who we bill, time zone ...). One row per setting.
 create table if not exists public.graffiti_settings (
   k text primary key,

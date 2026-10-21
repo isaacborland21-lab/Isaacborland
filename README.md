@@ -40,6 +40,19 @@ taken. The owner prints a monthly invoice for the city from `/graffiti/invoice`.
    (default is $0 and marking a month invoiced is blocked until it is set),
    business name, bill-to address, PO number and time zone.
 
+**Reporting and using it on several phones**
+
+- Anyone with the graffiti tab can **report** a tag (Log new → *Report it*): a photo
+  of the tag, an optional **Urgent** flag, and their name is recorded. Whoever
+  removes it opens it from the list, taps **I'll take this** (so two people do
+  not both drive out), then uses the normal before/after photos.
+- Everyone's list refreshes every 15 seconds and shows a toast for new reports
+  (urgent ones are called out). The **Needs removal** filter lists open reports,
+  urgent first. There are no push, text or email alerts, only what shows in the app.
+- Someone else can take over a claimed job; only the person who took it (or the
+  owner) can give it back.
+- Existing installs: re-run `supabase/graffiti.sql`. It adds the new columns and is safe to re-run.
+
 **How billing works**
 
 - Each tag bills at least the configured minimum (default 30 min). The actual
