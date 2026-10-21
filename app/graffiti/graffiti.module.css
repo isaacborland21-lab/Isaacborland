@@ -272,6 +272,10 @@
 .photobtn input { display: none; }
 .photobtn.go { background: var(--removed); color: #08210f; }
 .photobtn.busy { opacity: 0.5; pointer-events: none; }
+.photobtn.locked { opacity: 0.55; }
+.req { color: #e5484d; font-weight: 700; }
+.pick select.invalid,
+.pick input[type="text"].invalid { outline: 2px solid #e5484d; outline-offset: 1px; }
 
 /* radio-style option buttons */
 .opts {

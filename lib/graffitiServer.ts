@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { randomBytes } from "crypto";
-import { canEditTab, getSupabaseAdmin, PublicMetadata } from "@/lib/supabaseAdmin";
+import { canEditTab, canInvoice, getSupabaseAdmin, PublicMetadata } from "@/lib/supabaseAdmin";
 import {
   BillingSettings,
   Fields,
@@ -53,6 +53,20 @@ export async function requireGraffiti(ownerOnly = false): Promise<Who | NextResp
     return fail(ownerOnly ? "Owner only." : "Not permitted to use the graffiti tracker.", 403);
   }
   return { userId, owner, name: displayName(user) };
+}
+
+/**
+ * The invoice: the owner, or a crew account the owner switched "invoice" on for (and that has the graffiti tab).
+ * Billing settings, the template upload and un-marking an invoice stay owner-only: check `who.owner` for those.
+ */
+export async function requireInvoice(): Promise<Who | NextResponse> {
+  const { userId } = auth();
+  if (!userId) return fail("Not signed in.", 401);
+  const client = await clerkClient();
+  const user = await client.users.getUser(userId);
+  const meta = user.publicMetadata as PublicMetadata;
+  if (!canInvoice(meta)) return fail("Not permitted to use the invoice.", 403);
+  return { userId, owner: meta.owner === true, name: displayName(user) };
 }
 
 /** Narrows a "result or an error response" value: true means send it straight back to the caller. */

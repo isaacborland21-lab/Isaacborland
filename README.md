@@ -72,6 +72,14 @@ taken. The owner prints a monthly invoice for the city from `/graffiti/invoice`.
   sheet afterwards, it will not regroup; fix the job in the tracker and download again.
 - Existing installs: re-run `supabase/graffiti.sql` (adds the new columns and lets
   the bucket accept .xlsx).
+- **Letting crew use the invoice**: Admin tab → tick **graffiti invoice** for that person
+  (they also need the graffiti tab). They then get an *Invoice* link in the tracker and can
+  view the invoice, print/download it (PDF, CSV, Google Sheets) and mark a month invoiced.
+  Billing settings, the template upload and "undo invoiced" stay owner-only.
+- **Required before a photo**: kind of graffiti, what it's on and chemical used must be
+  filled in before the before photo (or the after photo / starting or finishing without a
+  photo). A report only needs the kind and what it's on, since nothing has been removed yet.
+  The server enforces this too, not just the form.
 
 **How billing works**
 

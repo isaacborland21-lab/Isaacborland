@@ -103,7 +103,7 @@ const tabLabelForKey: Record<EditableTab, Tab> = {
 
 type PublicMetadata = {
   owner?: boolean;
-  tabAdmin?: Partial<Record<EditableTab, boolean>>;
+  tabAdmin?: Partial<Record<EditableTab | "invoice", boolean>>;
 };
 
 type AdminUser = {
@@ -111,7 +111,7 @@ type AdminUser = {
   email: string;
   firstName: string | null;
   owner: boolean;
-  tabAdmin: Partial<Record<EditableTab, boolean>>;
+  tabAdmin: Partial<Record<EditableTab | "invoice", boolean>>;
 };
 
 // What the Admin tab's "View as" selector lets the owner preview: either a
@@ -364,6 +364,17 @@ function ContactTab({
 }
 
 const editableTabKeys = ["home", "projects", "graffiti", "food", "about", "contact"] as const;
+// What the Admin tab can switch on per user: every tab, plus "invoice" (the graffiti invoice for crew accounts).
+const permissionKeys = [...editableTabKeys, "invoice"] as const;
+const permissionLabel: Record<(typeof permissionKeys)[number], string> = {
+  home: "home",
+  projects: "projects",
+  graffiti: "graffiti",
+  food: "food",
+  about: "about",
+  contact: "contact",
+  invoice: "graffiti invoice",
+};
 
 function AdminTab({
   preview,
@@ -514,7 +525,7 @@ function AdminTab({
               <p style={{ fontFamily: mono, fontSize: 11, color: "var(--accent)", margin: 0 }}>Owner — full access</p>
             ) : (
               <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-                {editableTabKeys.map((tab) => {
+                {permissionKeys.map((tab) => {
                   const key = `${u.id}:${tab}`;
                   const checked = u.tabAdmin?.[tab] === true;
                   return (
@@ -528,7 +539,7 @@ function AdminTab({
                         disabled={pending === key}
                         onChange={(e) => toggle(u.id, tab, e.target.checked)}
                       />
-                      {tab}
+                      {permissionLabel[tab]}
                     </label>
                   );
                 })}
@@ -994,7 +1005,7 @@ export default function HomePage() {
               onReplaced={(raw) => setContent((prev) => (prev ? { ...prev, projects: normalizeProjects(raw) } : prev))}
             />
           )}
-          {active === "Graffiti" && canEdit("graffiti") && <GraffitiTab isOwner={isOwner} />}
+          {active === "Graffiti" && canEdit("graffiti") && <GraffitiTab isOwner={isOwner} canInvoice={isOwner || effectiveMetadata.tabAdmin?.invoice === true} />}
           {content && active === "Food" && canEdit("food") && (
             <FoodTab data={food} editable={canEdit("food")} onSave={(d) => saveTab("food", d)} />
           )}

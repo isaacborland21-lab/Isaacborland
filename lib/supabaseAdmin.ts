@@ -22,9 +22,17 @@ export function isValidTab(tab: string): tab is ValidTab {
   return (VALID_TABS as readonly string[]).includes(tab);
 }
 
+// Extra per-user switches that are not tabs. "invoice" lets someone who already has the graffiti tab
+// open the monthly invoice (view, download, mark as invoiced). Rates and the template stay owner-only.
+export const EXTRA_PERMISSIONS = ["invoice"] as const;
+export type ExtraPermission = (typeof EXTRA_PERMISSIONS)[number];
+export function isValidPermission(p: string): p is ValidTab | ExtraPermission {
+  return isValidTab(p) || (EXTRA_PERMISSIONS as readonly string[]).includes(p);
+}
+
 export type PublicMetadata = {
   owner?: boolean;
-  tabAdmin?: Partial<Record<ValidTab, boolean>>;
+  tabAdmin?: Partial<Record<ValidTab | ExtraPermission, boolean>>;
 };
 
 // Applied automatically to every new sign-up (see
@@ -43,4 +51,11 @@ export function canEditTab(metadata: PublicMetadata | null | undefined, tab: Val
   if (!metadata) return false;
   if (metadata.owner === true) return true;
   return metadata.tabAdmin?.[tab] === true;
+}
+
+/** The owner, or a crew account that has the graffiti tab AND the invoice switch. */
+export function canInvoice(metadata: PublicMetadata | null | undefined): boolean {
+  if (!metadata) return false;
+  if (metadata.owner === true) return true;
+  return metadata.tabAdmin?.graffiti === true && metadata.tabAdmin?.invoice === true;
 }

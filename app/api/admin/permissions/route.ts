@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth, clerkClient } from "@clerk/nextjs/server";
-import { isValidTab, PublicMetadata } from "@/lib/supabaseAdmin";
+import { isValidPermission, PublicMetadata } from "@/lib/supabaseAdmin";
 
 // Grants or revokes one user's edit rights for one tab. Owner-only.
 export async function PUT(request: Request) {
@@ -25,7 +25,7 @@ export async function PUT(request: Request) {
   }
 
   const { targetUserId, tab, allowed } = body;
-  if (!targetUserId || !tab || !isValidTab(tab) || typeof allowed !== "boolean") {
+  if (!targetUserId || !tab || !isValidPermission(tab) || typeof allowed !== "boolean") {
     return NextResponse.json({ error: "Bad request." }, { status: 400 });
   }
 

@@ -22,7 +22,7 @@ import {
   loadFinished,
   loadInvoices,
   loadSettings,
-  requireGraffiti,
+  requireInvoice,
 } from "@/lib/graffitiServer";
 
 export const dynamic = "force-dynamic";
@@ -35,13 +35,14 @@ function monthEnd(month: string): string {
 export const revalidate = 0;
 export const fetchCache = "force-no-store";
 
-// Everything is owner-only: the invoice shows the hourly rate and the totals.
+// The invoice shows the hourly rate and the totals, so it is for the owner and for crew accounts the owner switched "invoice" on for.
+// Un-marking a month stays owner-only.
 
 // GET /api/graffiti/invoice?month=YYYY-MM           -> the invoice for that month (JSON)
 // GET /api/graffiti/invoice?month=YYYY-MM&format=csv -> spreadsheet for your own records
 // GET /api/graffiti/invoice?month=YYYY-MM&format=xlsx&date=YYYY-MM-DD -> the invoice in your template's layout (opens in Google Sheets)
 export async function GET(request: Request) {
-  const who = await requireGraffiti(true);
+  const who = await requireInvoice();
   if (isResponse(who)) return who;
 
   const url = new URL(request.url);
@@ -119,6 +120,7 @@ export async function GET(request: Request) {
         months,
         unbilled: unbilledMonths(months, currentMonth),
         invoiceNo,
+        viewer: { owner: who.owner },
         today: localDate(new Date().toISOString(), tz),
       },
       { headers: { "Cache-Control": "no-store" } },
@@ -131,7 +133,7 @@ export async function GET(request: Request) {
 // POST { action: "mark" | "unmark", month, invoice_no?, invoice_date? }
 // "mark" freezes the month: rate, minimum, totals and the exact list of tags that were invoiced.
 export async function POST(request: Request) {
-  const who = await requireGraffiti(true);
+  const who = await requireInvoice();
   if (isResponse(who)) return who;
 
   let body: Record<string, unknown>;
@@ -149,6 +151,8 @@ export async function POST(request: Request) {
   const db = getSupabaseAdmin();
 
   if (body.action === "unmark") {
+    // undoing a sent invoice rewrites a financial record: owner only
+    if (!who.owner) return fail("Only the owner can undo an invoiced month.", 403);
     const { error } = await db.from("graffiti_invoices").delete().eq("month", month);
     if (error) return fail(error.message, 500);
     return NextResponse.json({ ok: true });
