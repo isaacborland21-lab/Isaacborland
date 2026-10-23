@@ -15,7 +15,7 @@
 // source code (the repo is public): the owner uploads it once and it is read from storage.
 
 import JSZip from "jszip";
-import { InvoiceBuild, InvoiceLine, TYPE_NAMES, chemicalOf, localParts } from "@/lib/graffiti";
+import { InvoiceBuild, InvoiceLine, chemicalOf, localParts, typeText } from "@/lib/graffiti";
 
 const SHEET_INVOICE = "xl/worksheets/sheet1.xml";
 const SHEET_LOG = "xl/worksheets/sheet2.xml";
@@ -235,7 +235,7 @@ export async function buildInvoiceXlsx(templateBytes: Uint8Array | Buffer, build
         num(ref(2, r), 9, dateSerial(j.date)),
         text(ref(3, r), 1, j.place),
         text(ref(4, r), 1, j.line.surface?.trim() ?? ""),
-        text(ref(5, r), 1, TYPE_NAMES[j.line.type]),
+        text(ref(5, r), 1, typeText(j.line.type, j.line.gtype_other)),
         num(ref(6, r), 12, j.arrived),
         num(ref(7, r), 12, j.left),
         text(ref(8, r), 1, chemicalOf(j.line)),
@@ -304,7 +304,7 @@ export async function buildInvoiceXlsx(templateBytes: Uint8Array | Buffer, build
       const j = jobByLine.get(l.id) as Job;
       const lr = j.logRow;
       const qty = templateQty(j.arrived, j.left);
-      const kind = TYPE_NAMES[j.line.type];
+      const kind = typeText(j.line.type, j.line.gtype_other);
       const surf = j.line.surface?.trim() ?? "";
       const desc = `Graffiti Removal at ${j.place}${kind ? `, ${kind}` : ""}${surf ? ` on ${surf}` : ""}`;
       qtySum += qty;

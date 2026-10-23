@@ -51,7 +51,7 @@ export const SURFACE_OPTIONS = [
   "Building wall",
   "Other",
 ];
-export const CHEMICAL_OPTIONS = ["SSR", "Graffiti remover", "Pressure wash", "Paint over", "Razor", "Other"];
+export const CHEMICAL_OPTIONS = ["SSR", "Bare brick", "Paint over", "Razor", "Other"];
 
 export const MAX_MINUTES = 1440;
 export const MAX_PHOTO_BYTES = 4 * 1024 * 1024;
@@ -67,8 +67,17 @@ export function isType(v: unknown): v is GraffitiType {
 export function isPickType(v: unknown): v is (typeof GRAFFITI_TYPES)[number] {
   return typeof v === "string" && (GRAFFITI_TYPES as readonly string[]).includes(v);
 }
-export function typeName(v: string | null | undefined): string {
-  return isType(v) ? TYPE_NAMES[v] : TYPE_NAMES.other;
+/** For lists and tables: "Other: wax pencil" when the crew typed what "Other" was. */
+export function typeName(v: string | null | undefined, other?: string | null): string {
+  const t = isType(v) ? v : "other";
+  const o = (other ?? "").trim();
+  return t === "other" && o ? `Other: ${o}` : TYPE_NAMES[t];
+}
+/** For the invoice line: what the tag was ("wax pencil" instead of "Other: wax pencil"). */
+export function typeText(v: string | null | undefined, other?: string | null): string {
+  const t = isType(v) ? v : "other";
+  const o = (other ?? "").trim();
+  return t === "other" && o ? o : TYPE_NAMES[t];
 }
 
 // ---------- Types ----------
@@ -102,6 +111,8 @@ export type Incident = {
   /** For the invoice description and the log: kind of graffiti, what it was on, what removed it. */
   surface: string | null;
   chemical: string | null;
+  /** What "Other" tag type meant, when the crew typed it. */
+  gtype_other?: string | null;
   /** Whoever finished (or took) the job: the account that gets the credit on the invoice. */
   removed_by_name: string | null;
 };
@@ -181,6 +192,7 @@ export type NewIncident = {
   urgent: boolean;
   surface: string | null;
   chemical: string | null;
+  gtype_other: string | null;
 };
 
 /**
@@ -238,6 +250,7 @@ export function computeCreate(fields: Fields, nowMs: number): Ok<{ row: NewIncid
       lng: Math.round(lng * 1e6) / 1e6,
       address: clean(fields.address, 255),
       gtype,
+      gtype_other: gtype === "other" ? clean(fields.gtype_other, 60) : null,
       description: clean(fields.description, 2000),
       reported_at: started ?? iso(nowMs),
       started_at: started,
@@ -276,6 +289,7 @@ export type IncidentPatch = Partial<{
   urgent: boolean;
   surface: string | null;
   chemical: string | null;
+  gtype_other: string | null;
   /** "me" = I'll take this, "release" = give it back. The route turns this into the claimed_by columns. */
   claim: "me" | "release";
 }>;
@@ -352,7 +366,10 @@ export function computeUpdate(
   if (has("gtype")) {
     if (!isType(fields.gtype)) return { ok: false, error: "Bad tag type" };
     patch.gtype = fields.gtype;
+    // switching to a real type drops any typed "Other" text
+    if (fields.gtype !== "other") patch.gtype_other = null;
   }
+  if (has("gtype_other") && !(patch.gtype !== undefined && patch.gtype !== "other")) patch.gtype_other = clean(fields.gtype_other, 60);
   if (has("address")) patch.address = clean(fields.address, 255);
   if (has("notes")) patch.notes = clean(fields.notes, 2000);
   if (has("scheduled_for")) {
@@ -569,6 +586,7 @@ export type InvoiceRow = {
   duration_min: number | null;
   surface: string | null;
   chemical: string | null;
+  gtype_other?: string | null;
   /** Name of the crew account that did the job (worked out on the server). Null = unknown. */
   done_by: string | null;
 };
@@ -734,7 +752,7 @@ export function buildCsv(
   const rows: (string | number | null)[][] = [head];
   for (const r of b.lines) {
     rows.push([
-      o.invNo, r.id, r.day, csvSafe(r.person), csvSafe(r.address), TYPE_NAMES[r.type],
+      o.invNo, r.id, r.day, csvSafe(r.person), csvSafe(r.address), csvSafe(typeName(r.type, r.gtype_other)),
       csvSafe(r.surface), csvSafe(chemicalOf(r)),
       r.started_at ? localStamp(r.started_at, o.tz) : "", // seconds kept for your records
       localStamp(r.finished_at ?? r.removed_at, o.tz),

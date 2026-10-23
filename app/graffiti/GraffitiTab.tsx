@@ -189,7 +189,7 @@ export default function GraffitiTab({ isOwner, canInvoice = isOwner }: { isOwner
     const list = incidents.filter(
       (i) =>
         (!fStatus || (fStatus === "needs" ? isOpen(i) : i.status === fStatus)) &&
-        (!q || `${i.address ?? ""} ${i.description ?? ""} ${i.notes ?? ""} ${i.reported_by_name ?? ""} ${typeName(i.gtype)}`.toLowerCase().includes(q)),
+        (!q || `${i.address ?? ""} ${i.description ?? ""} ${i.notes ?? ""} ${i.reported_by_name ?? ""} ${typeName(i.gtype, i.gtype_other)}`.toLowerCase().includes(q)),
     );
     // urgent reports that still need removing go to the top (otherwise newest first, as loaded)
     return [...list.filter((i) => i.urgent && isOpen(i)), ...list.filter((i) => !(i.urgent && isOpen(i)))];
@@ -232,7 +232,7 @@ export default function GraffitiTab({ isOwner, canInvoice = isOwner }: { isOwner
           <span>
             <b>Job in progress</b>
             <span className={styles.small}>
-              {(i.address || "Tap to take the after photo") + " · " + typeName(i.gtype)}
+              {(i.address || "Tap to take the after photo") + " · " + typeName(i.gtype, i.gtype_other)}
             </span>
           </span>
           <Elapsed start={i.started_at as string} className={styles.timer} />
@@ -286,7 +286,7 @@ export default function GraffitiTab({ isOwner, canInvoice = isOwner }: { isOwner
                   {i.urgent && i.status !== "removed" && <span className={`${styles.badge} ${styles.bUrgent}`}>Urgent</span>}
                   <div className={styles.cardTitle}>{i.address || `${i.lat.toFixed(4)}, ${i.lng.toFixed(4)}`}</div>
                   <div className={styles.cardMeta}>
-                    {`${typeName(i.gtype)} · ${fmtDate(i.reported_at)}` + (i.duration_min != null ? ` · ${fmtDur(i.duration_min)}` : "")}
+                    {`${typeName(i.gtype, i.gtype_other)} · ${fmtDate(i.reported_at)}` + (i.duration_min != null ? ` · ${fmtDur(i.duration_min)}` : "")}
                   </div>
                   {(i.reported_by_name || i.claimed_by_name || i.removed_by_name) && (
                     <div className={styles.cardMeta}>
@@ -524,10 +524,79 @@ function PickField({
   );
 }
 
+/** Pick one of a few boxes; choosing "Other" opens a text box to type what it is (the typed text is the value). */
+function ChoiceBoxes({
+  id,
+  label,
+  options,
+  value,
+  onChange,
+  required,
+  invalid,
+}: {
+  id: string;
+  label: string;
+  options: string[];
+  value: string;
+  onChange: (v: string) => void;
+  required?: boolean;
+  invalid?: boolean;
+}) {
+  const known = options.filter((o) => o !== "Other");
+  const [other, setOther] = useState(false);
+  const custom = other || (value !== "" && !known.includes(value));
+  return (
+    <div className={styles.pick}>
+      <span className={styles.lbl} id={`${id}-lbl`}>
+        {label}
+        {required && <span className={styles.req}> *</span>}
+      </span>
+      <div className={`${styles.opts} ${invalid ? styles.invalid : ""}`} role="radiogroup" aria-labelledby={`${id}-lbl`} aria-required={required || undefined} aria-invalid={invalid || undefined} id={id}>
+        {[...known, "Other"].map((o) => {
+          const on = o === "Other" ? custom : !custom && value === o;
+          return (
+            <label key={o} className={styles.opt}>
+              <input
+                type="radio"
+                name={id}
+                value={o}
+                checked={on}
+                onChange={() => {
+                  if (o === "Other") {
+                    setOther(true);
+                    if (known.includes(value)) onChange("");
+                  } else {
+                    setOther(false);
+                    onChange(o);
+                  }
+                }}
+              />
+              <span>{o}</span>
+            </label>
+          );
+        })}
+      </div>
+      {custom && (
+        <input
+          type="text"
+          aria-label={`${label}: describe`}
+          placeholder="Type what it is"
+          maxLength={80}
+          value={value}
+          aria-invalid={invalid || undefined}
+          className={invalid ? styles.invalid : undefined}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      )}
+    </div>
+  );
+}
+
 function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; onCreated: (inc: Incident) => void }) {
   const [address, setAddressState] = useState("");
   const [description, setDescription] = useState("");
   const [gtype, setGtype] = useState<GraffitiType>("slap");
+  const [gtypeOther, setGtypeOther] = useState("");
   // "remove": I'm at the tag and about to remove it (before photo starts the clock).
   // "report": I'm just reporting it so somebody else can remove it.
   const [intent, setIntent] = useState<"remove" | "report">("remove");
@@ -550,9 +619,10 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
   const [mapErr, setMapErr] = useState<string | null>(null);
 
   // values read after awaits must be current, not stale from the render that started the work
-  const latest = useRef({ address: "", description: "", gtype: "slap" as GraffitiType, surface: "", chemical: "" });
+  const latest = useRef({ address: "", description: "", gtype: "slap" as GraffitiType, gtypeOther: "", surface: "", chemical: "" });
   latest.current.description = description;
   latest.current.gtype = gtype;
+  latest.current.gtypeOther = gtypeOther;
   latest.current.surface = surface;
   latest.current.chemical = chemical;
   const setAddress = useCallback((v: string) => {
@@ -742,6 +812,7 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
     setReportFile(null);
     setUrgent(false);
     setSurface("");
+    setGtypeOther("");
     setShowErr(false);
     setFormKey((k) => k + 1);
     setMapOpen(false);
@@ -778,6 +849,7 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
       fd.set("lng", String(pk.lng));
       fd.set("address", latest.current.address);
       fd.set("gtype", latest.current.gtype);
+      fd.set("gtype_other", latest.current.gtypeOther);
       fd.set("description", latest.current.description);
       fd.set("surface", latest.current.surface);
       fd.set("chemical", latest.current.chemical);
@@ -815,6 +887,7 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
       fd.set("lng", String(pk.lng));
       fd.set("address", latest.current.address);
       fd.set("gtype", gtype);
+      fd.set("gtype_other", gtypeOther);
       fd.set("description", description);
       fd.set("surface", surface);
       if (!reporting) fd.set("chemical", chemical);
@@ -919,11 +992,21 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
           </label>
         ))}
       </div>
+      {gtype === "other" && (
+        <input
+          type="text"
+          aria-label="Type of tag: describe"
+          placeholder="What kind of tag? (optional)"
+          maxLength={60}
+          value={gtypeOther}
+          onChange={(e) => setGtypeOther(e.target.value)}
+        />
+      )}
 
       <div className={styles.picks} key={formKey}>
         <PickField id="gt-surface" label="What it's on" options={SURFACE_OPTIONS} value={surface} onChange={setSurface} required invalid={showErr && !surface.trim()} />
         {intent === "remove" && (
-          <PickField
+          <ChoiceBoxes
             id="gt-chem"
             label="Chemical used"
             options={CHEMICAL_OPTIONS}
@@ -1124,6 +1207,7 @@ function IncidentSheet({
   const [notes, setNotes] = useState(inc.notes ?? "");
   const [mins, setMins] = useState(inc.duration_min != null ? String(inc.duration_min) : "");
   const [gtype, setGtype] = useState<GraffitiType>(inc.gtype);
+  const [gtypeOther, setGtypeOther] = useState(inc.gtype_other ?? "");
   const [surface, setSurface] = useState(inc.surface ?? "");
   const [chemical, setChemical] = useState(inc.chemical ?? "");
   const [busy, setBusy] = useState(false);
@@ -1156,6 +1240,7 @@ function IncidentSheet({
       const fd = new FormData();
       fd.set("address", addr);
       fd.set("gtype", gtype);
+      fd.set("gtype_other", gtypeOther);
       fd.set("surface", surface);
       fd.set("chemical", chemical);
       fd.set("notes", notes);
@@ -1188,7 +1273,7 @@ function IncidentSheet({
   }
 
   const meta =
-    `${typeName(inc.gtype)} · reported ${fmtDate(inc.reported_at)}` +
+    `${typeName(inc.gtype, inc.gtype_other)} · reported ${fmtDate(inc.reported_at)}` +
     (inc.started_at ? ` · started ${fmtTime(inc.started_at)}` : "") +
     (inc.finished_at ? ` · finished ${fmtTime(inc.finished_at)}` : "");
 
@@ -1367,9 +1452,20 @@ function IncidentSheet({
             </option>
           ))}
         </select>
+        {gtype === "other" && (
+          <input
+            id="gs-type-other"
+            type="text"
+            aria-label="Type of tag: describe"
+            placeholder="What kind of tag? (optional)"
+            maxLength={60}
+            value={gtypeOther}
+            onChange={(e) => setGtypeOther(e.target.value)}
+          />
+        )}
 
         <PickField id="gs-surface" label="What it's on" options={SURFACE_OPTIONS} value={surface} onChange={setSurface} required={inc.status !== "removed"} invalid={showErr && !surface.trim()} />
-        <PickField id="gs-chem" label="Chemical used" options={CHEMICAL_OPTIONS} value={chemical} onChange={setChemical} required={inc.status !== "removed"} invalid={showErr && !chemical.trim()} />
+        <ChoiceBoxes id="gs-chem" label="Chemical used" options={CHEMICAL_OPTIONS} value={chemical} onChange={setChemical} required={inc.status !== "removed"} invalid={showErr && !chemical.trim()} />
 
         <label className={styles.lbl} htmlFor="gs-notes">
           Notes

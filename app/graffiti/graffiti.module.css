@@ -275,7 +275,8 @@
 .photobtn.locked { opacity: 0.55; }
 .req { color: #e5484d; font-weight: 700; }
 .pick select.invalid,
-.pick input[type="text"].invalid { outline: 2px solid #e5484d; outline-offset: 1px; }
+.pick input[type="text"].invalid,
+.pick .opts.invalid { outline: 2px solid #e5484d; outline-offset: 1px; }
 
 /* radio-style option buttons */
 .opts {

@@ -97,3 +97,6 @@ alter table public.graffiti_incidents drop constraint if exists graffiti_inciden
 alter table public.graffiti_incidents
   add constraint graffiti_incidents_gtype_check
   check (gtype in ('slap', 'chalk', 'sharpie', 'spray', 'other', 'ssr', 'powerwash'));
+
+-- What the crew typed when they picked "Other" as the tag type (safe to re-run).
+alter table public.graffiti_incidents add column if not exists gtype_other text;
