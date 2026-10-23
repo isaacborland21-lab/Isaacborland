@@ -9,7 +9,7 @@ import {
   MonthRow,
   ROUND_OPTIONS,
   TYPE_NAMES,
-  GRAFFITI_TYPES,
+  ALL_TYPES,
   billingFor,
   defaultInvoiceNo,
   fmtClock,
@@ -638,7 +638,7 @@ export default function InvoicePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {GRAFFITI_TYPES.map((t) => {
+                  {ALL_TYPES.map((t) => {
                     const b = byType[t];
                     return b ? (
                       <tr key={t}>

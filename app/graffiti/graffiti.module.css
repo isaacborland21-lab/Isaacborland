@@ -285,6 +285,8 @@
 }
 
 .opt { position: relative; display: block; }
+/* an odd tile out (5 tag types) fills the last row */
+.opts > .opt:last-child:nth-child(odd) { grid-column: 1 / -1; }
 
 .opt input {
   position: absolute;

@@ -13,7 +13,7 @@ create table if not exists public.graffiti_incidents (
   lng           double precision not null check (lng between -180 and 180),
   address       text,
   gtype         text        not null default 'other'
-                check (gtype in ('ssr', 'slap', 'powerwash', 'other')),
+                check (gtype in ('slap', 'chalk', 'sharpie', 'spray', 'other', 'ssr', 'powerwash')),
   description   text,
   notes         text,
   before_photo  text,
@@ -90,3 +90,10 @@ alter table public.graffiti_incidents drop constraint if exists graffiti_inciden
 update public.graffiti_incidents set gtype = 'powerwash' where gtype = 'bare_brick';
 alter table public.graffiti_incidents
   add constraint graffiti_incidents_gtype_check check (gtype in ('ssr', 'slap', 'powerwash', 'other'));
+
+-- Tag types are now Slap tag / Chalk pen / Sharpie / Spray paint / Other. SSR and Powerwash are retired
+-- but stay allowed so jobs already saved with them keep working (safe to re-run).
+alter table public.graffiti_incidents drop constraint if exists graffiti_incidents_gtype_check;
+alter table public.graffiti_incidents
+  add constraint graffiti_incidents_gtype_check
+  check (gtype in ('slap', 'chalk', 'sharpie', 'spray', 'other', 'ssr', 'powerwash'));

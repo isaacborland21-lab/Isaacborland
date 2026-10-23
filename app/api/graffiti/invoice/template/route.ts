@@ -48,7 +48,7 @@ export async function POST(request: Request) {
   // dry run with one made-up job: proves the file matches the layout the generator expects
   try {
     const sample: InvoiceRow = {
-      id: 1, gtype: "ssr", address: "Test", notes: null, description: null, lat: 0, lng: 0, before_photo: null, after_photo: null,
+      id: 1, gtype: "slap", address: "Test", notes: null, description: null, lat: 0, lng: 0, before_photo: null, after_photo: null,
       started_at: null, finished_at: "2026-01-15T18:00:00Z", removed_at: "2026-01-15T18:00:00Z", duration_min: 10,
       surface: null, chemical: null, done_by: "Test",
     };

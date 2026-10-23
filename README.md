@@ -58,9 +58,9 @@ taken. The owner prints a monthly invoice for the city from `/graffiti/invoice`.
 - Each finished tag is credited to whoever took the job (else whoever finished it,
   else whoever reported/logged it), using the name on their login. The on-screen
   invoice and the CSV group by that person with a subtotal each.
-- The crew record the **type of tag** (SSR, Slap tag, Powerwash, Other), **what it is on** and the
+- The crew record the **type of tag** (Slap tag, Chalk pen, Sharpie, Spray paint, Other), **what it is on** and the
   **chemical used**. They are in the CSV, and the tag type fills the sheet's *Graffiti type* column
-  (so the line reads "Graffiti Removal at Main St, SSR on Electrical box").
+  (so the line reads "Graffiti Removal at Main St, Slap tag on Electrical box").
 - Invoice page → *Google Sheets invoice*: upload your own invoice sheet **once**
   (Google Sheets → File → Download → Microsoft Excel .xlsx). It is kept in the
   private `graffiti` bucket, not in this repo (it has your logo and letterhead).
