@@ -7,6 +7,7 @@ import {
   CHEMICAL_OPTIONS,
   SURFACE_OPTIONS,
   GRAFFITI_STATUSES,
+  ALL_TYPES,
   GRAFFITI_TYPES,
   GraffitiStatus,
   GraffitiType,
@@ -17,6 +18,7 @@ import {
   fmtDur,
   typeName,
   detailsMessage,
+  isPickType,
   missingDetails,
 } from "@/lib/graffiti";
 import {
@@ -562,7 +564,7 @@ function PickField({
 function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; onCreated: (inc: Incident) => void }) {
   const [address, setAddressState] = useState("");
   const [description, setDescription] = useState("");
-  const [gtype, setGtype] = useState<GraffitiType>("ssr");
+  const [gtype, setGtype] = useState<GraffitiType>("slap");
   // "remove": I'm at the tag and about to remove it (before photo starts the clock).
   // "report": I'm just reporting it so somebody else can remove it.
   const [intent, setIntent] = useState<"remove" | "report">("remove");
@@ -585,7 +587,7 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
   const [mapErr, setMapErr] = useState<string | null>(null);
 
   // values read after awaits must be current, not stale from the render that started the work
-  const latest = useRef({ address: "", description: "", gtype: "ssr" as GraffitiType, surface: "", chemical: "" });
+  const latest = useRef({ address: "", description: "", gtype: "slap" as GraffitiType, surface: "", chemical: "" });
   latest.current.description = description;
   latest.current.gtype = gtype;
   latest.current.surface = surface;
@@ -1396,7 +1398,7 @@ function IncidentSheet({
           Type of tag
         </label>
         <select id="gs-type" value={gtype} onChange={(e) => setGtype(e.target.value as GraffitiType)}>
-          {GRAFFITI_TYPES.map((t) => (
+          {ALL_TYPES.filter((t) => isPickType(t) || t === inc.gtype).map((t) => (
             <option key={t} value={t}>
               {TYPE_NAMES[t]}
             </option>

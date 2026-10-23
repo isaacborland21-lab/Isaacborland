@@ -11,14 +11,22 @@
 export const GRAFFITI_STATUSES = ["reported", "scheduled", "in_progress", "removed"] as const;
 export type GraffitiStatus = (typeof GRAFFITI_STATUSES)[number];
 
-export const GRAFFITI_TYPES = ["ssr", "slap", "powerwash", "other"] as const;
-export type GraffitiType = (typeof GRAFFITI_TYPES)[number];
+// What crew can pick for a new tag.
+export const GRAFFITI_TYPES = ["slap", "chalk", "sharpie", "spray", "other"] as const;
+// Retired choices: no longer offered, but jobs already saved with them keep working.
+export const LEGACY_TYPES = ["ssr", "powerwash"] as const;
+export type GraffitiType = (typeof GRAFFITI_TYPES)[number] | (typeof LEGACY_TYPES)[number];
+/** Every type that can appear on a saved job (pickable first, then retired ones). */
+export const ALL_TYPES: readonly GraffitiType[] = [...GRAFFITI_TYPES, ...LEGACY_TYPES];
 
 export const TYPE_NAMES: Record<GraffitiType, string> = {
-  ssr: "SSR",
   slap: "Slap tag",
-  powerwash: "Powerwash",
+  chalk: "Chalk pen",
+  sharpie: "Sharpie",
+  spray: "Spray paint",
   other: "Other",
+  ssr: "SSR",
+  powerwash: "Powerwash",
 };
 
 export const STATUS_LABEL: Record<GraffitiStatus, string> = {
@@ -43,7 +51,7 @@ export const SURFACE_OPTIONS = [
   "Building wall",
   "Other",
 ];
-export const CHEMICAL_OPTIONS = ["SSR", "Graffiti remover", "Pressure wash", "Paint over", "Other"];
+export const CHEMICAL_OPTIONS = ["SSR", "Graffiti remover", "Pressure wash", "Paint over", "Razor", "Other"];
 
 export const MAX_MINUTES = 1440;
 export const MAX_PHOTO_BYTES = 4 * 1024 * 1024;
@@ -53,6 +61,10 @@ export function isStatus(v: unknown): v is GraffitiStatus {
   return typeof v === "string" && (GRAFFITI_STATUSES as readonly string[]).includes(v);
 }
 export function isType(v: unknown): v is GraffitiType {
+  return typeof v === "string" && (ALL_TYPES as readonly string[]).includes(v);
+}
+/** A type crew may choose for a new tag (excludes the retired ones). */
+export function isPickType(v: unknown): v is (typeof GRAFFITI_TYPES)[number] {
   return typeof v === "string" && (GRAFFITI_TYPES as readonly string[]).includes(v);
 }
 export function typeName(v: string | null | undefined): string {
@@ -197,7 +209,7 @@ export function computeCreate(fields: Fields, nowMs: number): Ok<{ row: NewIncid
   const lng = parseCoord(fields.lng, 180);
   if (lat === null || lng === null) return { ok: false, error: "Pick a location on the map or use GPS" };
 
-  const gtype: GraffitiType = isType(fields.gtype) ? fields.gtype : "other";
+  const gtype: GraffitiType = isPickType(fields.gtype) ? fields.gtype : "other";
   const mode = fields.mode === "start" || fields.mode === "done" ? fields.mode : "report";
   const lacking = missingDetails({ surface: fields.surface, chemical: fields.chemical }, mode !== "report");
   if (lacking.length > 0) return { ok: false, error: detailsMessage(lacking) };
