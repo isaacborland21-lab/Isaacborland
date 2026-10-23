@@ -234,3 +234,5 @@
     print-color-adjust: exact;
   }
 }
+
+.off td { opacity: 0.45; }
