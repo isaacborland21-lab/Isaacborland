@@ -20,9 +20,9 @@ export const BUCKET = "graffiti";
 export const TEMPLATE_PATH = "templates/invoice-template.xlsx";
 
 export const INCIDENT_COLS =
-  "id, status, lat, lng, address, gtype, description, notes, before_photo, after_photo, reported_at, scheduled_for, started_at, finished_at, removed_at, duration_min, report_photo, reported_by_name, urgent, claimed_by, claimed_by_name, surface, chemical, removed_by_name, created_by";
+  "id, status, lat, lng, address, gtype, gtype_other, description, notes, before_photo, after_photo, reported_at, scheduled_for, started_at, finished_at, removed_at, duration_min, report_photo, reported_by_name, urgent, claimed_by, claimed_by_name, surface, chemical, removed_by_name, created_by";
 export const INVOICE_ROW_COLS =
-  "id, gtype, address, notes, description, lat, lng, before_photo, after_photo, started_at, finished_at, removed_at, duration_min, surface, chemical, removed_by_name, claimed_by_name, reported_by_name, created_by";
+  "id, gtype, gtype_other, address, notes, description, lat, lng, before_photo, after_photo, started_at, finished_at, removed_at, duration_min, surface, chemical, removed_by_name, claimed_by_name, reported_by_name, created_by";
 export const SNAPSHOT_COLS =
   "month, invoice_no, invoice_date, invoiced_at, jobs, actual_min, billed_min, total_cents, rate_cents, min_minutes, round_to, job_ids";
 

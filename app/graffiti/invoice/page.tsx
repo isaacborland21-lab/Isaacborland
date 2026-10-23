@@ -9,6 +9,7 @@ import {
   MonthRow,
   ROUND_OPTIONS,
   TYPE_NAMES,
+  typeName,
   ALL_TYPES,
   billingFor,
   defaultInvoiceNo,
@@ -595,7 +596,7 @@ export default function InvoicePage() {
                                 {detail && <span className={styles.sub}>{detail}</span>}
                                 {r.notes && r.notes.trim() !== "" && <span className={styles.sub}>{r.notes}</span>}
                               </td>
-                              <td>{TYPE_NAMES[r.type]}</td>
+                              <td>{typeName(r.type, r.gtype_other)}</td>
                               <td className={styles.n}>
                                 {r.actual === null ? <span className={styles.min}>not recorded</span> : `${r.actual} min`}
                                 {r.started_at && fin && (
@@ -683,7 +684,7 @@ export default function InvoicePage() {
             {lines.map((r, k) => (
               <div key={r.id} className={styles.job}>
                 <div className={styles.cap}>
-                  <b>#{k + 1}</b> · {r.address || `${r.lat}, ${r.lng}`} · {TYPE_NAMES[r.type]} · {fmtLongDate(r.removed_at, tz)}
+                  <b>#{k + 1}</b> · {r.address || `${r.lat}, ${r.lng}`} · {typeName(r.type, r.gtype_other)} · {fmtLongDate(r.removed_at, tz)}
                 </div>
                 <div className={styles.pair}>
                   {(
