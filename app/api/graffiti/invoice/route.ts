@@ -2,10 +2,14 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { buildInvoiceXlsx } from "@/lib/invoiceXlsx";
 import {
+  CITIES,
+  CITY_NAMES,
+  City,
   buildCsv,
   buildInvoice,
   clean,
   diffSnapshot,
+  isCity,
   isMonth,
   localDate,
   localMonth,
@@ -35,12 +39,21 @@ function monthEnd(month: string): string {
 export const revalidate = 0;
 export const fetchCache = "force-no-store";
 
+
 // The invoice shows the hourly rate and the totals, so it is for the owner and for crew accounts the owner switched "invoice" on for.
 // Un-marking a month stays owner-only.
 
-// GET /api/graffiti/invoice?month=YYYY-MM           -> the invoice for that month (JSON)
-// GET /api/graffiti/invoice?month=YYYY-MM&format=csv -> spreadsheet for your own records
-// GET /api/graffiti/invoice?month=YYYY-MM&format=xlsx&date=YYYY-MM-DD -> the invoice in your template's layout (opens in Google Sheets)
+// Every tag finished in a city/month is either on a sent invoice or still "unbilled". The working invoice
+// is the unbilled ones (the page ticks which of them go on it); sent invoices keep their exact tag list.
+//
+// GET /api/graffiti/invoice?month=YYYY-MM&city=helena           -> the page data (JSON)
+// GET ...&format=csv|xlsx[&ids=1,2,3][&invoice=<id>][&date=][&inv=] -> download the ticked tags, or a sent invoice
+const idList = (raw: string | null): number[] | null => {
+  if (raw === null) return null;
+  const ids = raw.split(",").map((x) => Number(x.trim())).filter((n) => Number.isInteger(n) && n > 0);
+  return [...new Set(ids)].slice(0, 2000);
+};
+
 export async function GET(request: Request) {
   const who = await requireInvoice();
   if (isResponse(who)) return who;
@@ -54,19 +67,36 @@ export async function GET(request: Request) {
     const wanted = url.searchParams.get("month");
     if (wanted !== null && !isMonth(wanted)) return fail("Bad month (use YYYY-MM).", 400);
     const month = wanted ?? currentMonth;
+    const cityParam = url.searchParams.get("city");
+    if (cityParam !== null && !isCity(cityParam)) return fail("Bad city.", 400);
 
-    const snapshot = invoices.find((i) => i.month === month) ?? null;
-    const bill = billingFor(settings, snapshot);
-    // an invoiced month keeps its number; otherwise the page may suggest one (?inv=) for the CSV / header
-    const invoiceNo = snapshot?.invoice_no ?? clean(url.searchParams.get("inv"), 40) ?? defaultInvoiceNo(month);
-    const build = buildInvoice(rows, { month, tz, ...bill });
+    const billedIds = new Set(invoices.flatMap((i) => i.job_ids));
+    const unbilledRows = rows.filter((r) => !billedIds.has(r.id));
+    // no city asked for: open the one with the most tags still to invoice this month
+    const unbilledBy = (c: City) => buildInvoice(unbilledRows, { month, tz, rateCents: 0, minMin: 0, roundTo: 1, city: c }).tot.jobs;
+    const city: City = cityParam ?? (unbilledBy("helena") > unbilledBy("bozeman") ? "helena" : "bozeman");
+
+    const sent = invoices.filter((i) => i.city === city && i.month === month);
+    const bill = billingFor(settings, null);
+    const nextNo = defaultInvoiceNo(month, city, sent.length + 1);
+    const ids = idList(url.searchParams.get("ids"));
+    const sentId = url.searchParams.get("invoice");
+    const picked = sentId !== null ? sent.find((i) => String(i.id) === sentId) : undefined;
+    if (sentId !== null && !picked) return fail("That invoice was not found for this city and month.", 404);
+
+    // what a download is built from: a sent invoice (its own frozen terms and tags), or the ticked unbilled tags
+    const src = picked
+      ? { snap: picked, no: picked.invoice_no, terms: billingFor(settings, picked), only: picked.job_ids, rows }
+      : { snap: null, no: clean(url.searchParams.get("inv"), 40) ?? nextNo, terms: bill, only: ids ?? undefined, rows: unbilledRows };
+    const build = buildInvoice(src.rows, { month, tz, ...src.terms, city, only: src.only });
+    const slug = `${city}-${month}${picked ? `-${picked.id}` : ""}`;
 
     if (url.searchParams.get("format") === "csv") {
-      const csv = buildCsv(build, { invNo: invoiceNo, tz, rateCents: bill.rateCents });
+      const csv = buildCsv(build, { invNo: src.no, tz, rateCents: src.terms.rateCents });
       return new Response(csv, {
         headers: {
           "Content-Type": "text/csv; charset=utf-8",
-          "Content-Disposition": `attachment; filename="graffiti-invoice-${month}.csv"`,
+          "Content-Disposition": `attachment; filename="graffiti-invoice-${slug}.csv"`,
           "Cache-Control": "no-store",
         },
       });
@@ -75,26 +105,26 @@ export async function GET(request: Request) {
     if (url.searchParams.get("format") === "xlsx") {
       const { data: file, error: dlErr } = await db.storage.from(BUCKET).download(TEMPLATE_PATH);
       if (dlErr || !file) return fail("Upload your invoice template first (Invoice page → Google Sheets invoice).", 404);
-      if (build.tot.jobs === 0) return fail(`There are no finished tags in ${month} to invoice.`, 400);
+      if (build.tot.jobs === 0) return fail(`There are no tags selected for this ${CITY_NAMES[city]} invoice.`, 400);
       // The template bills in half-hour steps with a half-hour minimum (that is what its formulas do),
       // so the sheet always uses 30 / 30 whatever the on-screen rounding setting is.
-      const sheetBuild = buildInvoice(rows, { month, tz, rateCents: bill.rateCents, minMin: 30, roundTo: 30 });
+      const sheetBuild = buildInvoice(src.rows, { month, tz, rateCents: src.terms.rateCents, minMin: 30, roundTo: 30, city, only: src.only });
       const dateParam = url.searchParams.get("date") ?? "";
-      const invoiceDate = /^\d{4}-\d{2}-\d{2}$/.test(dateParam) && !Number.isNaN(Date.parse(dateParam)) ? dateParam : snapshot?.invoice_date ?? monthEnd(month);
+      const invoiceDate = /^\d{4}-\d{2}-\d{2}$/.test(dateParam) && !Number.isNaN(Date.parse(dateParam)) ? dateParam : src.snap?.invoice_date ?? monthEnd(month);
       try {
         const bytes = await buildInvoiceXlsx(new Uint8Array(await file.arrayBuffer()), sheetBuild, {
           invoiceDate,
-          invoiceNo,
+          invoiceNo: src.no,
           poNumber: settings.po_number,
           terms: settings.terms,
           billTo: settings.bill_to.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(0, 5),
-          rateCents: bill.rateCents,
+          rateCents: src.terms.rateCents,
           tz,
         });
         return new Response(bytes as unknown as BodyInit, {
           headers: {
             "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            "Content-Disposition": `attachment; filename="graffiti-invoice-${month}.xlsx"`,
+            "Content-Disposition": `attachment; filename="graffiti-invoice-${slug}.xlsx"`,
             "Cache-Control": "no-store",
           },
         });
@@ -103,23 +133,30 @@ export async function GET(request: Request) {
       }
     }
 
-    const diff = snapshot ? diffSnapshot(snapshot.job_ids, build.ids) : { added: [] as number[], dropped: [] as number[] };
-    // Same tags but different minutes / amount (e.g. a time was corrected after sending)?
-    const changed = !!snapshot && (snapshot.total_cents !== build.tot.cents || snapshot.billed_min !== build.tot.billed || snapshot.actual_min !== build.tot.actual);
-    const months = monthTable(rows.map((r) => r.removed_at), invoices, tz);
+    // each sent invoice, rebuilt from its own tag list and the terms it was sent with, plus what changed since
+    const sentOut = sent.map((snap) => {
+      const b = buildInvoice(rows, { month, tz, ...billingFor(settings, snap), city, only: snap.job_ids });
+      const diff = diffSnapshot(snap.job_ids, b.ids);
+      const changed = snap.total_cents !== b.tot.cents || snap.billed_min !== b.tot.billed || snap.actual_min !== b.tot.actual;
+      return { snapshot: snap, build: b, dropped: diff.dropped, changed };
+    });
+    const working = buildInvoice(unbilledRows, { month, tz, ...bill, city });
+    const months = monthTable(rows, invoices, tz, city);
+    // tags still to invoice this month, per city (for the Helena / Bozeman switch)
+    const counts = Object.fromEntries(CITIES.map((c) => [c, unbilledBy(c)])) as Record<City, number>;
 
     return NextResponse.json(
       {
         month,
+        city,
         currentMonth,
         settings,
-        snapshot,
-        build,
-        diff,
-        changed,
+        build: working,
+        sent: sentOut,
         months,
         unbilled: unbilledMonths(months, currentMonth),
-        invoiceNo,
+        counts,
+        invoiceNo: nextNo,
         viewer: { owner: who.owner },
         today: localDate(new Date().toISOString(), tz),
       },
@@ -130,8 +167,9 @@ export async function GET(request: Request) {
   }
 }
 
-// POST { action: "mark" | "unmark", month, invoice_no?, invoice_date? }
-// "mark" freezes the month: rate, minimum, totals and the exact list of tags that were invoiced.
+// POST { action: "mark", month, city, ids, invoice_no?, invoice_date? }  -> a sent invoice for exactly those tags
+// POST { action: "unmark", id }                                          -> undo a sent invoice (owner only)
+// POST { action: "set_city", id, city: "bozeman" | "helena" | "" }       -> move one tag to the other city ("" = back to automatic)
 export async function POST(request: Request) {
   const who = await requireInvoice();
   if (isResponse(who)) return who;
@@ -144,36 +182,74 @@ export async function POST(request: Request) {
   } catch {
     return fail("Invalid JSON body.", 400);
   }
-  const month = body.month;
-  if (!isMonth(month)) return fail("Bad month (use YYYY-MM).", 400);
-  if (body.action !== "mark" && body.action !== "unmark") return fail("Bad action.", 400);
+  if (body.action !== "mark" && body.action !== "unmark" && body.action !== "set_city") return fail("Bad action.", 400);
 
   const db = getSupabaseAdmin();
 
+  if (body.action === "set_city") {
+    const id = Number(body.id);
+    if (!Number.isInteger(id) || id <= 0) return fail("Bad id.", 400);
+    const c = body.city === "" ? null : body.city;
+    if (c !== null && !isCity(c)) return fail("Bad city.", 400);
+    try {
+      const invoices = await loadInvoices(db);
+      const sent = invoices.find((i) => i.job_ids.includes(id));
+      if (sent) return fail(`That tag is already on invoice ${sent.invoice_no}. Undo it first to move the tag.`, 409);
+      const { data, error } = await db.from("graffiti_incidents").update({ city: c }).eq("id", id).select("id").maybeSingle();
+      if (error) return fail(error.message, 500);
+      if (!data) return fail("Incident not found.", 404);
+      return NextResponse.json({ ok: true });
+    } catch (e) {
+      return fail(e instanceof Error ? e.message : "Could not move the tag.", 500);
+    }
+  }
+
   if (body.action === "unmark") {
     // undoing a sent invoice rewrites a financial record: owner only
-    if (!who.owner) return fail("Only the owner can undo an invoiced month.", 403);
-    const { error } = await db.from("graffiti_invoices").delete().eq("month", month);
+    if (!who.owner) return fail("Only the owner can undo an invoice.", 403);
+    const id = Number(body.id);
+    if (!Number.isInteger(id) || id <= 0) return fail("Bad invoice id.", 400);
+    const { error } = await db.from("graffiti_invoices").delete().eq("id", id);
     if (error) return fail(error.message, 500);
     return NextResponse.json({ ok: true });
   }
 
+  const month = body.month;
+  if (!isMonth(month)) return fail("Bad month (use YYYY-MM).", 400);
+  const city = body.city;
+  if (!isCity(city)) return fail("Choose Helena or Bozeman.", 400);
+  const wanted = Array.isArray(body.ids) ? [...new Set((body.ids as unknown[]).map(Number).filter((n) => Number.isInteger(n) && n > 0))] : [];
+  if (wanted.length === 0) return fail("Tick at least one tag to invoice.", 400);
+
   try {
     const [settings, rows, invoices] = await Promise.all([loadSettings(db), loadFinished(db), loadInvoices(db)]);
     const tz = settings.tz;
-    if (invoices.some((i) => i.month === month)) return fail(`${month} is already marked as invoiced.`, 409);
     if (month > localMonth(new Date().toISOString(), tz)) return fail("That month hasn't happened yet.", 400);
 
     const bill = billingFor(settings, null);
-    if (bill.rateCents <= 0) return fail("Set your hourly rate in Billing settings before marking a month invoiced.", 400);
-    const build = buildInvoice(rows, { month, tz, ...bill });
-    if (build.tot.jobs === 0) return fail("There are no finished tags in that month.", 400);
+    if (bill.rateCents <= 0) return fail("Set your hourly rate in Billing settings before marking tags invoiced.", 400);
+
+    // only tags that are finished that month, in that city and on no sent invoice yet can go on a new one
+    const billedIds = new Set(invoices.flatMap((i) => i.job_ids));
+    const open = new Set(rows.filter((r) => !billedIds.has(r.id)).map((r) => r.id));
+    const eligible = new Set(buildInvoice(rows.filter((r) => open.has(r.id)), { month, tz, ...bill, city }).ids);
+    const bad = wanted.filter((id) => !eligible.has(id));
+    if (bad.length > 0) {
+      return fail(
+        `Job ${bad.map((n) => "#" + n).join(", ")} can't go on this ${CITY_NAMES[city]} invoice (already invoiced, or not a finished ${month} tag in this city). Reload the page.`,
+        409,
+      );
+    }
+    const build = buildInvoice(rows, { month, tz, ...bill, city, only: wanted });
 
     const dateRaw = typeof body.invoice_date === "string" ? body.invoice_date.trim() : "";
     if (dateRaw !== "" && !(/^\d{4}-\d{2}-\d{2}$/.test(dateRaw) && !Number.isNaN(Date.parse(dateRaw)))) return fail("Bad invoice date.", 400);
-    const invoiceNo = clean(typeof body.invoice_no === "string" ? body.invoice_no : "", 40) ?? defaultInvoiceNo(month);
+    const nthSame = invoices.filter((i) => i.city === city && i.month === month).length + 1;
+    const invoiceNo = clean(typeof body.invoice_no === "string" ? body.invoice_no : "", 40) ?? defaultInvoiceNo(month, city, nthSame);
+    if (invoices.some((i) => i.invoice_no === invoiceNo)) return fail(`Invoice number ${invoiceNo} is already used. Pick another.`, 409);
 
     const { error } = await db.from("graffiti_invoices").insert({
+      city,
       month,
       invoice_no: invoiceNo,
       invoice_date: dateRaw || localDate(new Date().toISOString(), tz),
@@ -188,12 +264,9 @@ export async function POST(request: Request) {
       round_to: bill.roundTo,
       job_ids: build.ids,
     });
-    if (error) {
-      // the primary key on `month` makes a double-tap / second device fail cleanly
-      return fail(error.code === "23505" ? `${month} is already marked as invoiced.` : error.message, error.code === "23505" ? 409 : 500);
-    }
+    if (error) return fail(error.message, 500);
     return NextResponse.json({ ok: true });
   } catch (e) {
-    return fail(e instanceof Error ? e.message : "Could not mark the month invoiced.", 500);
+    return fail(e instanceof Error ? e.message : "Could not mark the tags invoiced.", 500);
   }
 }

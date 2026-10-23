@@ -4,6 +4,9 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import styles from "./invoice.module.css";
 import {
   BillingSettings,
+  CITIES,
+  CITY_NAMES,
+  City,
   InvoiceBuild,
   InvoiceSnapshot,
   MonthRow,
@@ -13,6 +16,8 @@ import {
   ALL_TYPES,
   billingFor,
   defaultInvoiceNo,
+  isCity,
+  summarize,
   fmtClock,
   fmtLongDate,
   fmtPlainDate,
@@ -25,16 +30,19 @@ import {
 } from "@/lib/graffiti";
 import { apiJson, photoUrl } from "../clientUtil";
 
+type SentInvoice = { snapshot: InvoiceSnapshot; build: InvoiceBuild; dropped: number[]; changed: boolean };
+
 type InvoiceData = {
   month: string;
+  city: City;
   currentMonth: string;
   settings: BillingSettings;
-  snapshot: InvoiceSnapshot | null;
+  /** tags finished this month in this city that are on no sent invoice yet */
   build: InvoiceBuild;
-  diff: { added: number[]; dropped: number[] };
-  changed: boolean;
+  sent: SentInvoice[];
   months: MonthRow[];
   unbilled: string[];
+  counts: Record<City, number>;
   invoiceNo: string;
   viewer?: { owner: boolean };
   today: string;
@@ -46,6 +54,9 @@ const errMsg = (e: unknown) => (e instanceof Error ? e.message : "Something went
 
 export default function InvoicePage() {
   const [month, setMonth] = useState<string | null>(null); // null until the address bar has been read
+  const [city, setCity] = useState<City | "">(""); // "" = let the server pick the city with the most tags to invoice
+  const [unticked, setUnticked] = useState<Set<number>>(new Set()); // tags left off this invoice (everything else is ticked)
+  const [viewId, setViewId] = useState<number | null>(null); // a sent invoice being looked at; null = the one being prepared
   const [data, setData] = useState<InvoiceData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -86,19 +97,23 @@ export default function InvoicePage() {
 
   useEffect(() => {
     document.title = "Invoice · Isaac Borland";
-    const m = new URLSearchParams(window.location.search).get("month");
+    const q = new URLSearchParams(window.location.search);
+    const m = q.get("month");
+    const c = q.get("city");
+    setCity(isCity(c) ? c : "");
     setMonth(isMonth(m) ? m : "");
   }, []);
 
-  const load = useCallback(async (m: string, keepFlash = false) => {
+  const load = useCallback(async (m: string, c: City | "", keepFlash = false) => {
     setLoading(true);
     if (!keepFlash) setFlash(null);
     try {
-      const d = await apiJson<InvoiceData>(`/api/graffiti/invoice${m ? `?month=${m}` : ""}`);
+      const qs = [m ? `month=${m}` : "", c ? `city=${c}` : ""].filter(Boolean).join("&");
+      const d = await apiJson<InvoiceData>(`/api/graffiti/invoice${qs ? `?${qs}` : ""}`);
       setData(d);
       setError(null);
       setInvNo(d.invoiceNo);
-      setInvDate(d.snapshot?.invoice_date ?? d.today);
+      setInvDate((cur) => cur || d.today);
       setDraft((cur) => cur ?? d.settings);
     } catch (e) {
       setError(errMsg(e));
@@ -107,52 +122,52 @@ export default function InvoicePage() {
   }, []);
 
   useEffect(() => {
-    if (month !== null) void load(month);
-  }, [month, load]);
+    if (month !== null) void load(month, city);
+  }, [month, city, load]);
 
-  function go(m: string) {
-    window.history.replaceState(null, "", `/graffiti/invoice?month=${m}`);
+  function go(m: string, c: City | "" = city) {
+    window.history.replaceState(null, "", `/graffiti/invoice?month=${m}${c ? `&city=${c}` : ""}`);
+    setUnticked(new Set());
+    setViewId(null);
     setMonth(m);
+    setCity(c);
   }
 
-  async function mark() {
+  async function post(payload: Record<string, unknown>, okText: string) {
+    setBusy(true);
+    try {
+      await apiJson("/api/graffiti/invoice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      setFlash({ kind: "ok", text: okText });
+      if (data) await load(data.month, data.city, true);
+    } catch (e) {
+      setFlash({ kind: "bad", text: errMsg(e) });
+    }
+    setBusy(false);
+  }
+
+  async function mark(ids: number[], cents: number) {
     if (!data) return;
-    const { build, month: m, currentMonth } = data;
+    const { month: m, city: c, currentMonth } = data;
     const msg =
-      `Mark ${monthLabel(m)} as invoiced as ${invNo} for ${money(build.tot.cents)}?` +
+      `Mark ${plural(ids.length, "tag")} as invoiced as ${invNo} (${CITY_NAMES[c]}, ${monthLabel(m)}) for ${money(cents)}?` +
       (m >= currentMonth ? "\n\nThis month is not over yet. Tags finished later will not be on this invoice." : "");
     if (!window.confirm(msg)) return;
-    setBusy(true);
-    try {
-      await apiJson("/api/graffiti/invoice", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "mark", month: m, invoice_no: invNo, invoice_date: invDate }),
-      });
-      setFlash({ kind: "ok", text: "Marked as invoiced." });
-      await load(m, true);
-    } catch (e) {
-      setFlash({ kind: "bad", text: errMsg(e) });
-    }
-    setBusy(false);
+    await post({ action: "mark", month: m, city: c, ids, invoice_no: invNo, invoice_date: invDate }, "Marked as invoiced.");
+    setUnticked(new Set());
   }
 
-  async function unmark() {
-    if (!data) return;
-    if (!window.confirm(`Remove the invoiced mark for ${monthLabel(data.month)}? Use this only to fix and re-issue the invoice.`)) return;
-    setBusy(true);
-    try {
-      await apiJson("/api/graffiti/invoice", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "unmark", month: data.month }),
-      });
-      setFlash({ kind: "ok", text: "Invoiced mark removed." });
-      await load(data.month, true);
-    } catch (e) {
-      setFlash({ kind: "bad", text: errMsg(e) });
-    }
-    setBusy(false);
+  async function unmark(inv: InvoiceSnapshot) {
+    if (!window.confirm(`Remove invoice ${inv.invoice_no}? Its ${plural(inv.jobs, "tag")} go back to "not invoiced". Use this only to fix and re-issue it.`)) return;
+    if (viewId === inv.id) setViewId(null);
+    await post({ action: "unmark", id: inv.id }, `Invoice ${inv.invoice_no} removed.`);
+  }
+
+  async function moveTag(id: number, to: City | "") {
+    await post({ action: "set_city", id, city: to }, "Moved.");
   }
 
   async function saveSettings(ev: React.FormEvent) {
@@ -168,7 +183,7 @@ export default function InvoicePage() {
       setDraft(settings);
       const tzNote = settings.tz !== draft.tz.trim() ? ` The time zone "${draft.tz}" was not recognised, so ${settings.tz} is still in use.` : "";
       setFlash({ kind: tzNote ? "bad" : "ok", text: "Billing settings saved." + tzNote });
-      await load(data.month, true);
+      await load(data.month, data.city, true);
     } catch (e) {
       setFlash({ kind: "bad", text: errMsg(e) });
     }
@@ -201,24 +216,59 @@ export default function InvoicePage() {
     );
   }
 
-  const { build, snapshot: inv, settings: S, month: m, currentMonth } = data;
+  const { settings: S, month: m, currentMonth, city: c, sent } = data;
   // crew accounts with the invoice switch can view, download and mark; rates, the template and "undo" stay with the owner
   const isOwner = data.viewer?.owner !== false;
   const tz = S.tz;
+  const viewing = sent.find((x) => x.snapshot.id === viewId) ?? null; // a sent invoice, read-only
+  const inv = viewing?.snapshot ?? null;
+  const build = viewing ? viewing.build : data.build;
   const bill = billingFor(S, inv);
   const { rateCents, minMin, roundTo } = bill;
-  const { lines, byType, tot, warn } = build;
+  // the tags on the sheet: everything on a sent invoice, or the ticked ones of those still to invoice
+  const shownLines = viewing ? build.lines : build.lines.filter((l) => !unticked.has(l.id));
+  const sum = summarize(shownLines);
+  const { byType, tot } = sum;
+  const warn = {
+    notime: shownLines.filter((l) => l.actual === null).map((l) => l.id),
+    noaddr: shownLines.filter((l) => !l.address || l.address.trim() === "").map((l) => l.id),
+    noafter: shownLines.filter((l) => !l.after_photo).map((l) => l.id),
+  };
   const label = monthLabel(m);
-  const addedLines = lines.filter((l) => data.diff.added.includes(l.id));
-  const addedCents = addedLines.reduce((a, l) => a + l.cents, 0);
-  const noteNo = invNo.trim() || defaultInvoiceNo(m);
-  const csvHref = `/api/graffiti/invoice?month=${m}&format=csv&inv=${encodeURIComponent(noteNo)}`;
-  const xlsxHref = `/api/graffiti/invoice?month=${m}&format=xlsx&inv=${encodeURIComponent(noteNo)}${invDate ? `&date=${invDate}` : ""}`;
+  const cityName = CITY_NAMES[c];
+  const noteNo = inv ? inv.invoice_no : invNo.trim() || defaultInvoiceNo(m, c);
+  const sheetDate = inv ? inv.invoice_date : invDate;
+  const tickedIds = shownLines.map((l) => l.id);
+  const dl = viewing ? `invoice=${viewing.snapshot.id}` : `ids=${tickedIds.join(",")}&inv=${encodeURIComponent(noteNo)}${invDate ? `&date=${invDate}` : ""}`;
+  const csvHref = `/api/graffiti/invoice?month=${m}&city=${c}&format=csv&${dl}`;
+  const xlsxHref = `/api/graffiti/invoice?month=${m}&city=${c}&format=xlsx&${dl}`;
+  const toggle = (id: number) =>
+    setUnticked((cur) => {
+      const n = new Set(cur);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
 
   return (
     <div className={styles.page} aria-busy={loading}>
       <div className={`${styles.bar} ${styles.noprint}`}>
         <div className={styles.panel}>
+          <div className={styles.ctl} role="group" aria-label="City" style={{ marginBottom: 10 }}>
+            {CITIES.map((k) => (
+              <button
+                key={k}
+                type="button"
+                className={`${styles.btn} ${c === k ? "" : styles.sec}`}
+                aria-pressed={c === k}
+                data-testid={`city-${k}`}
+                onClick={() => go(m, k)}
+              >
+                {CITY_NAMES[k]}
+                {data.counts[k] > 0 && <span style={{ opacity: 0.85 }}> ({data.counts[k]} to invoice)</span>}
+              </button>
+            ))}
+          </div>
           <div className={styles.ctl}>
             <div>
               <label>&nbsp;</label>
@@ -243,11 +293,11 @@ export default function InvoicePage() {
             </div>
             <div style={{ width: 150 }}>
               <label htmlFor="inv-no">Invoice #</label>
-              <input id="inv-no" type="text" maxLength={40} value={invNo} disabled={!!inv} onChange={(e) => setInvNo(e.target.value)} />
+              <input id="inv-no" type="text" maxLength={40} value={inv ? inv.invoice_no : invNo} disabled={!!inv} onChange={(e) => setInvNo(e.target.value)} />
             </div>
             <div>
               <label htmlFor="inv-date">Invoice date</label>
-              <input id="inv-date" type="date" value={invDate} disabled={!!inv} onChange={(e) => setInvDate(e.target.value)} />
+              <input id="inv-date" type="date" value={inv ? inv.invoice_date : invDate} disabled={!!inv} onChange={(e) => setInvDate(e.target.value)} />
             </div>
             <div>
               <label>&nbsp;</label>
@@ -276,66 +326,88 @@ export default function InvoicePage() {
 
         {flash && <div className={`${styles.panel} ${flash.kind === "ok" ? styles.ok : styles.bad}`} role="status">{flash.text}</div>}
 
-        {/* invoiced status for this month */}
-        {inv ? (
-          <>
-            <div className={`${styles.panel} ${styles.ok}`} data-testid="invoiced-panel">
-              <span className={`${styles.pill} ${styles.pg}`}>Invoiced</span> <b>{label}</b> was marked invoiced as <b>{inv.invoice_no}</b> on{" "}
-              {fmtLongDate(inv.invoiced_at, tz)}: <b>{money(inv.total_cents)}</b> for {plural(inv.jobs, "tag")} ({money(inv.rate_cents)}/hr,{" "}
-              {inv.min_minutes}-min minimum). This page shows it with those same terms.
-              {!data.diff.added.length && !data.diff.dropped.length && !data.changed && (
+        {/* invoices already sent for this city and month */}
+        {sent.map((x) => {
+          const sn = x.snapshot;
+          return (
+            <div key={sn.id} className={`${styles.panel} ${styles.ok}`} data-testid="invoiced-panel">
+              <span className={`${styles.pill} ${styles.pg}`}>Invoiced</span> <b>{sn.invoice_no}</b> · {cityName}, {label} · marked invoiced {fmtLongDate(sn.invoiced_at, tz)}:{" "}
+              <b>{money(sn.total_cents)}</b> for {plural(sn.jobs, "tag")} ({money(sn.rate_cents)}/hr, {sn.min_minutes}-min minimum).
+              {!x.dropped.length && !x.changed && (
                 <span className={styles.sub} style={{ color: "#1e6b34" }}>
-                  Matches what was invoiced: no tags added, removed or changed since.
+                  Matches what was invoiced: nothing removed or changed since.
                 </span>
               )}
-              {isOwner ? (
-                <div style={{ marginTop: 8 }}>
-                  <button type="button" className={`${styles.btn} ${styles.red}`} disabled={busy} onClick={unmark}>
+              {x.dropped.length > 0 && (
+                <span className={styles.sub} style={{ color: "#8a5a00" }}>
+                  <b>No longer qualify:</b> job {jobList(x.dropped)} was on this invoice but is not a completed {cityName} job in {label} now (status, date or city changed).
+                </span>
+              )}
+              {x.changed && (
+                <span className={styles.sub} style={{ color: "#8a5a00" }}>
+                  <b>Times changed since it was sent:</b> it was {money(sn.total_cents)} for {sn.billed_min} billed minutes; with today&apos;s records it is {money(x.build.tot.cents)} for{" "}
+                  {x.build.tot.billed} billed minutes.
+                </span>
+              )}
+              <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {viewId === sn.id ? (
+                  <button type="button" className={`${styles.btn} ${styles.sec}`} onClick={() => setViewId(null)}>
+                    ← Back to the tags still to invoice
+                  </button>
+                ) : (
+                  <button type="button" className={`${styles.btn} ${styles.sec}`} data-testid="view-sent" onClick={() => setViewId(sn.id)}>
+                    View this invoice
+                  </button>
+                )}
+                {isOwner && (
+                  <button type="button" className={`${styles.btn} ${styles.red}`} disabled={busy} onClick={() => unmark(sn)}>
                     Undo &quot;invoiced&quot;
                   </button>
-                </div>
-              ) : (
-                <span className={styles.sub}>Only the owner can undo this.</span>
-              )}
+                )}
+              </div>
+              {!isOwner && <span className={styles.sub}>Only the owner can undo this.</span>}
             </div>
-            {data.diff.added.length > 0 && (
-              <div className={`${styles.panel} ${styles.warn}`}>
-                <b>Not on the invoice you sent:</b> {plural(data.diff.added.length, "tag")} {data.diff.added.length === 1 ? "was" : "were"} finished in {label} after it was
-                marked invoiced (job {jobList(data.diff.added)}, {money(addedCents)}). They have not been billed. Undo &quot;invoiced&quot; and re-issue, or bill them separately.
-              </div>
-            )}
-            {data.diff.dropped.length > 0 && (
-              <div className={`${styles.panel} ${styles.warn}`}>
-                <b>No longer qualify:</b> job {jobList(data.diff.dropped)} was on the invoice you sent but is not a completed job in {label} now (status or date changed).
-              </div>
-            )}
-            {data.changed && (
-              <div className={`${styles.panel} ${styles.warn}`}>
-                <b>Times changed since it was sent:</b> the invoice you sent was {money(inv.total_cents)} for {inv.billed_min} billed minutes; with today&apos;s records it is{" "}
-                {money(tot.cents)} for {tot.billed} billed minutes. A tag&apos;s time was edited after invoicing.
-              </div>
-            )}
-          </>
-        ) : (
-          tot.jobs > 0 && (
+          );
+        })}
+
+        {/* the tags still to invoice: tick the ones that go on this invoice */}
+        {!viewing &&
+          (data.build.lines.length > 0 ? (
             <div className={`${styles.panel} ${styles.warn}`} data-testid="not-invoiced-panel">
-              <span className={`${styles.pill} ${styles.pa}`}>Not invoiced</span> <b>{label}</b> has {plural(tot.jobs, "completed tag")} ({money(tot.cents)}) and has not been
-              marked as invoiced.
-              <div style={{ marginTop: 8 }}>
-                <button type="button" className={`${styles.btn} ${styles.green}`} disabled={busy || rateCents === 0} onClick={mark}>
-                  Mark {label} as invoiced
-                </button>{" "}
-                <span className={styles.sub} style={{ display: "inline" }}>
-                  Do this after you send it. It saves the total, rate and tags so you can tell later if anything changed.
-                </span>
+              <span className={`${styles.pill} ${styles.pa}`}>Not invoiced</span> <b>{cityName}, {label}</b> has {plural(data.build.lines.length, "completed tag")} still to invoice. Tick the ones
+              for this invoice: <b data-testid="ticked-count">{shownLines.length}</b> ticked, <b>{money(tot.cents)}</b>.
+              <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <button type="button" className={`${styles.btn} ${styles.sec}`} data-testid="tick-all" onClick={() => setUnticked(new Set())}>
+                  Tick all
+                </button>
+                <button type="button" className={`${styles.btn} ${styles.sec}`} data-testid="tick-none" onClick={() => setUnticked(new Set(data.build.ids))}>
+                  Untick all
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.btn} ${styles.green}`}
+                  data-testid="mark-btn"
+                  disabled={busy || rateCents === 0 || shownLines.length === 0}
+                  onClick={() => mark(tickedIds, tot.cents)}
+                >
+                  Mark {plural(shownLines.length, "ticked tag")} as invoiced
+                </button>
               </div>
+              <span className={styles.sub}>
+                Do this after you send it. It saves the total, rate and those tags. Tags you leave unticked stay here for your next {cityName} invoice.
+              </span>
             </div>
-          )
-        )}
+          ) : (
+            sent.length > 0 && (
+              <div className={`${styles.panel} ${styles.ok}`} data-testid="all-invoiced-panel">
+                Every finished {cityName} tag in {label} is on an invoice.
+              </div>
+            )
+          ))}
 
         {data.unbilled.length > 0 && (
           <div className={`${styles.panel} ${styles.warn}`} data-testid="unbilled-panel">
-            <span className={`${styles.pill} ${styles.pa}`}>Check</span> Earlier months with finished work that were never marked invoiced:{" "}
+            <span className={`${styles.pill} ${styles.pa}`}>Check</span> Earlier months with {cityName} tags still to invoice:{" "}
             {data.unbilled.map((k, i) => (
               <span key={k}>
                 <button type="button" className={styles.linkish} onClick={() => go(k)}>
@@ -400,9 +472,9 @@ export default function InvoicePage() {
         </details>
 
         <details className={styles.panel} open={data.unbilled.length > 0}>
-          <summary style={{ cursor: "pointer", fontWeight: 700 }}>Invoice status by month</summary>
+          <summary style={{ cursor: "pointer", fontWeight: 700 }}>Invoice status by month ({cityName})</summary>
           {data.months.length === 0 ? (
-            <p className={styles.sub}>No completed jobs yet.</p>
+            <p className={styles.sub}>No completed {cityName} jobs yet.</p>
           ) : (
             <div className={styles.tw}>
               <table className={styles.stat} style={{ marginTop: 8, width: "100%", borderCollapse: "collapse" }}>
@@ -411,7 +483,7 @@ export default function InvoicePage() {
                     <th align="left">Month</th>
                     <th align="right">Tags</th>
                     <th align="left">Status</th>
-                    <th align="left">Invoice</th>
+                    <th align="left">Invoices</th>
                     <th align="right">Invoiced total</th>
                   </tr>
                 </thead>
@@ -423,18 +495,17 @@ export default function InvoicePage() {
                           {monthLabel(r.month, false)}
                         </button>
                       </td>
-                      <td align="right">
-                        {r.count}
-                        {r.invoice && r.count !== r.invoice.jobs && <span className={styles.min}> (was {r.invoice.jobs})</span>}
-                      </td>
+                      <td align="right">{r.count}</td>
                       <td>
-                        {r.invoice ? (
+                        {r.invoices.length > 0 && r.unbilled === 0 ? (
                           <>
                             <span className={`${styles.pill} ${styles.pg}`}>Invoiced</span>{" "}
                             <span className={styles.sub} style={{ display: "inline" }}>
-                              {fmtShortDate(r.invoice.invoiced_at, tz)}
+                              {fmtShortDate(r.invoices[r.invoices.length - 1].invoiced_at, tz)}
                             </span>
                           </>
+                        ) : r.invoices.length > 0 ? (
+                          <span className={`${styles.pill} ${styles.pa}`}>{r.unbilled} left to invoice</span>
                         ) : r.count === 0 ? (
                           <span className={`${styles.pill} ${styles.pn}`}>No work</span>
                         ) : r.month >= currentMonth ? (
@@ -443,8 +514,8 @@ export default function InvoicePage() {
                           <span className={`${styles.pill} ${styles.pa}`}>Not invoiced</span>
                         )}
                       </td>
-                      <td>{r.invoice ? r.invoice.invoice_no : ""}</td>
-                      <td align="right">{r.invoice ? money(r.invoice.total_cents) : ""}</td>
+                      <td>{r.invoices.map((i) => i.invoice_no).join(", ")}</td>
+                      <td align="right">{r.invoices.length > 0 ? money(r.invoices.reduce((a, i) => a + i.total_cents, 0)) : ""}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -534,7 +605,10 @@ export default function InvoicePage() {
               <span>Invoice #</span> <b>{noteNo}</b>
             </div>
             <div>
-              <span>Date</span> {invDate ? fmtPlainDate(invDate) : ""}
+              <span>Date</span> {sheetDate ? fmtPlainDate(sheetDate) : ""}
+            </div>
+            <div>
+              <span>City</span> {cityName}
             </div>
             <div>
               <span>Service period</span> {label}
@@ -552,18 +626,19 @@ export default function InvoicePage() {
           {S.bill_to}
         </div>
         <div className={styles.terms}>
-          Graffiti removal, {label}. Rate {money(rateCents)} per hour, minimum {minMin} minutes billed per tag
+          Graffiti removal in {cityName}, {label}. Rate {money(rateCents)} per hour, minimum {minMin} minutes billed per tag
           {roundTo > 1 ? `, time rounded up to the next ${roundTo} minutes` : ""}.
         </div>
 
-        {lines.length === 0 ? (
-          <div className={styles.empty}>No completed jobs in {label}.</div>
+        {build.lines.length === 0 ? (
+          <div className={styles.empty}>No tags still to invoice for {cityName} in {label}.</div>
         ) : (
           <>
             <div className={styles.tw}>
               <table>
                 <thead>
                   <tr>
+                    {!viewing && <th className={styles.noprint}>Use</th>}
                     <th>#</th>
                     <th>Date</th>
                     <th>Location</th>
@@ -571,57 +646,86 @@ export default function InvoicePage() {
                     <th className={styles.n}>Time on site</th>
                     <th className={styles.n}>Billed</th>
                     <th className={styles.n}>Amount</th>
+                    {!viewing && <th className={styles.noprint}>City</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {(() => {
                     let k = 0;
-                    return build.people.map((p) => (
-                      <Fragment key={p.name}>
-                        <tr className={styles.person} data-testid="person-row">
-                          <td colSpan={7}>
-                            <b>{p.name}</b> <span className={styles.sub} style={{ display: "inline" }}>{plural(p.tot.jobs, "tag")}</span>
-                          </td>
-                        </tr>
-                        {p.lines.map((r) => {
-                          k += 1;
-                          const fin = r.finished_at ?? r.removed_at;
-                          const detail = r.surface ? `on ${r.surface}` : "";
-                          return (
-                            <tr key={r.id}>
-                              <td>{k}</td>
-                              <td>{fmtShortDate(r.removed_at, tz)}</td>
-                              <td>
-                                {r.address || `${r.lat}, ${r.lng}`}
-                                {detail && <span className={styles.sub}>{detail}</span>}
-                                {r.notes && r.notes.trim() !== "" && <span className={styles.sub}>{r.notes}</span>}
-                              </td>
-                              <td>{typeName(r.type, r.gtype_other)}</td>
-                              <td className={styles.n}>
-                                {r.actual === null ? <span className={styles.min}>not recorded</span> : `${r.actual} min`}
-                                {r.started_at && fin && (
-                                  <span className={styles.sub}>
-                                    {fmtClock(r.started_at, tz)} - {fmtClock(fin, tz)}
-                                  </span>
+                    const extra = viewing ? 0 : 1; // the tick column is on screen only
+                    return build.people.map((p) => {
+                      const on = p.lines.filter((l) => viewing || !unticked.has(l.id));
+                      const pt = summarize(on).tot;
+                      return (
+                        <Fragment key={p.name}>
+                          <tr className={`${styles.person} ${on.length === 0 ? styles.noprint : ""}`} data-testid="person-row">
+                            <td colSpan={7 + extra * 2}>
+                              <b>{p.name}</b> <span className={styles.sub} style={{ display: "inline" }}>{plural(pt.jobs, "tag")}</span>
+                            </td>
+                          </tr>
+                          {p.lines.map((r) => {
+                            const ticked = viewing !== null || !unticked.has(r.id);
+                            if (ticked) k += 1;
+                            const fin = r.finished_at ?? r.removed_at;
+                            const detail = r.surface ? `on ${r.surface}` : "";
+                            return (
+                              <tr key={r.id} className={ticked ? undefined : `${styles.off} ${styles.noprint}`} data-testid="tag-row" data-ticked={ticked}>
+                                {!viewing && (
+                                  <td className={styles.noprint}>
+                                    <input type="checkbox" checked={ticked} aria-label={`Put job ${r.id} on this invoice`} onChange={() => toggle(r.id)} />
+                                  </td>
                                 )}
-                              </td>
-                              <td className={styles.n}>
-                                {r.billed} min
-                                {r.minApplied && <span className={`${styles.sub} ${styles.min}`}>minimum</span>}
-                              </td>
-                              <td className={styles.n}>{money(r.cents)}</td>
-                            </tr>
-                          );
-                        })}
-                        <tr className={styles.subtotal} data-testid="person-subtotal">
-                          <td colSpan={5} className={styles.n}>
-                            Subtotal: {p.name}
-                          </td>
-                          <td className={styles.n}>{hours(p.tot.billed)}</td>
-                          <td className={styles.n}>{money(p.tot.cents)}</td>
-                        </tr>
-                      </Fragment>
-                    ));
+                                <td>{ticked ? k : "–"}</td>
+                                <td>{fmtShortDate(r.removed_at, tz)}</td>
+                                <td>
+                                  {r.address || `${r.lat}, ${r.lng}`}
+                                  {detail && <span className={styles.sub}>{detail}</span>}
+                                  {r.notes && r.notes.trim() !== "" && <span className={styles.sub}>{r.notes}</span>}
+                                </td>
+                                <td>{typeName(r.type, r.gtype_other)}</td>
+                                <td className={styles.n}>
+                                  {r.actual === null ? <span className={styles.min}>not recorded</span> : `${r.actual} min`}
+                                  {r.started_at && fin && (
+                                    <span className={styles.sub}>
+                                      {fmtClock(r.started_at, tz)} - {fmtClock(fin, tz)}
+                                    </span>
+                                  )}
+                                </td>
+                                <td className={styles.n}>
+                                  {r.billed} min
+                                  {r.minApplied && <span className={`${styles.sub} ${styles.min}`}>minimum</span>}
+                                </td>
+                                <td className={styles.n}>{money(r.cents)}</td>
+                                {!viewing && (
+                                  <td className={styles.noprint}>
+                                    <select
+                                      aria-label={`City for job ${r.id}`}
+                                      value={r.cityName}
+                                      disabled={busy}
+                                      onChange={(e) => void moveTag(r.id, e.target.value === r.cityAuto ? "" : (e.target.value as City))}
+                                    >
+                                      {CITIES.map((k2) => (
+                                        <option key={k2} value={k2}>
+                                          {CITY_NAMES[k2]}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </td>
+                                )}
+                              </tr>
+                            );
+                          })}
+                          <tr className={`${styles.subtotal} ${on.length === 0 ? styles.noprint : ""}`} data-testid="person-subtotal">
+                            <td colSpan={5 + extra} className={styles.n}>
+                              Subtotal: {p.name}
+                            </td>
+                            <td className={styles.n}>{hours(pt.billed)}</td>
+                            <td className={styles.n}>{money(pt.cents)}</td>
+                            {!viewing && <td className={styles.noprint} />}
+                          </tr>
+                        </Fragment>
+                      );
+                    });
                   })()}
                 </tbody>
               </table>
@@ -677,11 +781,11 @@ export default function InvoicePage() {
 
         {S.terms.trim() !== "" && <div className={styles.foot}>{S.terms}</div>}
 
-        {showPhotos && lines.length > 0 && (
+        {showPhotos && shownLines.length > 0 && (
           <div className={styles.photosPage}>
-            <h2>Photo documentation: {label}</h2>
+            <h2>Photo documentation: {cityName}, {label}</h2>
             <div className={styles.sub}>Before and after photo for each tag. Invoice {noteNo}.</div>
-            {lines.map((r, k) => (
+            {shownLines.map((r, k) => (
               <div key={r.id} className={styles.job}>
                 <div className={styles.cap}>
                   <b>#{k + 1}</b> · {r.address || `${r.lat}, ${r.lng}`} · {typeName(r.type, r.gtype_other)} · {fmtLongDate(r.removed_at, tz)}

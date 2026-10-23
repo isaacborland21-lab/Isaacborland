@@ -568,6 +568,25 @@ export function sanitizeSettings(input: Record<string, unknown>, current: Billin
   return next;
 }
 
+// ---------- Cities (Helena / Bozeman) ----------
+
+export const CITIES = ["bozeman", "helena"] as const;
+export type City = (typeof CITIES)[number];
+export const CITY_NAMES: Record<City, string> = { bozeman: "Bozeman", helena: "Helena" };
+const CITY_CENTERS: Record<City, [number, number]> = { bozeman: [45.677, -111.0386], helena: [46.5927, -112.0361] };
+export function isCity(v: unknown): v is City {
+  return typeof v === "string" && (CITIES as readonly string[]).includes(v);
+}
+/** Which city a pin belongs to: the closer of the two city centres (Belgrade, Hyalite etc. land on Bozeman; East Helena on Helena). */
+export function autoCity(lat: number, lng: number): City {
+  const d = (c: [number, number]) => (lat - c[0]) ** 2 + ((lng - c[1]) * Math.cos((lat * Math.PI) / 180)) ** 2;
+  return d(CITY_CENTERS.helena) < d(CITY_CENTERS.bozeman) ? "helena" : "bozeman";
+}
+/** The city on an invoice: the owner's override when there is one, else worked out from the pin. */
+export function cityOf(r: { city?: string | null; lat: number; lng: number }): City {
+  return isCity(r.city) ? r.city : autoCity(r.lat, r.lng);
+}
+
 // ---------- Invoice ----------
 
 export type InvoiceRow = {
@@ -587,6 +606,8 @@ export type InvoiceRow = {
   surface: string | null;
   chemical: string | null;
   gtype_other?: string | null;
+  /** Owner's city override ("bozeman" / "helena"); null = worked out from the pin. */
+  city?: string | null;
   /** Name of the crew account that did the job (worked out on the server). Null = unknown. */
   done_by: string | null;
 };
@@ -601,6 +622,8 @@ export type InvoiceLine = InvoiceRow & {
   minApplied: boolean;
   day: string; // local date finished, YYYY-MM-DD
   person: string; // who did it (UNASSIGNED when nobody is recorded)
+  cityName: City; // Helena or Bozeman (override, else from the pin)
+  cityAuto: City; // where the pin says it is
 };
 
 export type Totals = { jobs: number; actual: number; billed: number; cents: number };
@@ -640,50 +663,63 @@ export function billingFor(settings: BillingSettings, snap: Pick<InvoiceSnapshot
 /** Chemical used; older jobs only have the tag-type buttons, where "SSR" was the chemical. */
 export const chemicalOf = (r: { chemical: string | null; gtype: string }) => r.chemical?.trim() || (r.gtype === "ssr" ? "SSR" : "");
 
-export const defaultInvoiceNo = (month: string) => `INV-${month.replace("-", "")}`;
+/** INV-202610 (no city), INV-202610-HEL, INV-202610-HEL-2 for a second invoice the same month. */
+export const defaultInvoiceNo = (month: string, city?: City, nth = 1) =>
+  `INV-${month.replace("-", "")}${city ? `-${city.slice(0, 3).toUpperCase()}` : ""}${nth > 1 ? `-${nth}` : ""}`;
 
-/** Completed jobs finished in `month` (local days in `tz`), with billing worked out. */
-export function buildInvoice(
-  rows: InvoiceRow[],
-  o: { month: string; tz: string; rateCents: number; minMin: number; roundTo: number },
-): InvoiceBuild {
-  const out: InvoiceBuild = { lines: [], people: [], ids: [], byType: {}, tot: emptyTotals(), warn: { notime: [], noaddr: [], noafter: [] } };
-  const inMonth = rows
-    .filter((r) => r.removed_at && localMonth(r.removed_at, o.tz) === o.month)
-    .sort((a, b) => Date.parse(a.removed_at) - Date.parse(b.removed_at) || a.id - b.id);
-
-  for (const r of inMonth) {
-    const actual = r.duration_min === null ? null : r.duration_min;
-    const { billed, cents, minApplied } = billTag(actual, o.minMin, o.roundTo, o.rateCents);
-    const type: GraffitiType = isType(r.gtype) ? r.gtype : "other";
-    const person = (r.done_by ?? "").trim() || UNASSIGNED;
-    const line: InvoiceLine = { ...r, type, actual, billed, cents, minApplied, day: localDate(r.removed_at, o.tz), person };
-    out.lines.push(line);
-    out.ids.push(r.id);
-    let g = out.people.find((p) => p.name === person);
-    if (!g) out.people.push((g = { name: person, lines: [], tot: emptyTotals() }));
+/** Totals, per-person groups and per-tag-type totals for a set of lines (used on the server and for the ticked tags on the page). */
+export function summarize(lines: InvoiceLine[]): Pick<InvoiceBuild, "people" | "byType" | "tot"> {
+  const out = { people: [] as PersonGroup[], byType: {} as InvoiceBuild["byType"], tot: emptyTotals() };
+  for (const line of lines) {
+    let g = out.people.find((p) => p.name === line.person);
+    if (!g) out.people.push((g = { name: line.person, lines: [], tot: emptyTotals() }));
     g.lines.push(line);
-    g.tot.jobs += 1;
-    g.tot.actual += actual ?? 0;
-    g.tot.billed += billed;
-    g.tot.cents += cents;
-
-    const b = (out.byType[type] ??= emptyTotals());
-    for (const t of [b, out.tot]) {
+    const b = (out.byType[line.type] ??= emptyTotals());
+    for (const t of [g.tot, b, out.tot]) {
       t.jobs += 1;
-      t.actual += actual ?? 0;
-      t.billed += billed;
-      t.cents += cents;
+      t.actual += line.actual ?? 0;
+      t.billed += line.billed;
+      t.cents += line.cents;
     }
-    if (actual === null) out.warn.notime.push(r.id);
-    if (!r.address || r.address.trim() === "") out.warn.noaddr.push(r.id);
-    if (!r.after_photo) out.warn.noafter.push(r.id);
   }
   out.people.sort((a, b) => (a.name === UNASSIGNED ? 1 : b.name === UNASSIGNED ? -1 : a.name.localeCompare(b.name)));
   return out;
 }
 
+/**
+ * Completed jobs finished in `month` (local days in `tz`), with billing worked out.
+ * `city` keeps one city's tags; `only` keeps just those job ids (the tags ticked for this invoice).
+ */
+export function buildInvoice(
+  rows: InvoiceRow[],
+  o: { month: string; tz: string; rateCents: number; minMin: number; roundTo: number; city?: City; only?: number[] },
+): InvoiceBuild {
+  const only = o.only ? new Set(o.only) : null;
+  const inMonth = rows
+    .filter((r) => r.removed_at && localMonth(r.removed_at, o.tz) === o.month)
+    .filter((r) => !o.city || cityOf(r) === o.city)
+    .filter((r) => !only || only.has(r.id))
+    .sort((a, b) => Date.parse(a.removed_at) - Date.parse(b.removed_at) || a.id - b.id);
+
+  const lines: InvoiceLine[] = [];
+  const warn: InvoiceBuild["warn"] = { notime: [], noaddr: [], noafter: [] };
+  for (const r of inMonth) {
+    const actual = r.duration_min === null ? null : r.duration_min;
+    const { billed, cents, minApplied } = billTag(actual, o.minMin, o.roundTo, o.rateCents);
+    const type: GraffitiType = isType(r.gtype) ? r.gtype : "other";
+    const person = (r.done_by ?? "").trim() || UNASSIGNED;
+    lines.push({ ...r, type, actual, billed, cents, minApplied, day: localDate(r.removed_at, o.tz), person, cityName: cityOf(r), cityAuto: autoCity(r.lat, r.lng) });
+    if (actual === null) warn.notime.push(r.id);
+    if (!r.address || r.address.trim() === "") warn.noaddr.push(r.id);
+    if (!r.after_photo) warn.noafter.push(r.id);
+  }
+  return { lines, ids: lines.map((l) => l.id), warn, ...summarize(lines) };
+}
+
 export type InvoiceSnapshot = {
+  /** One row per invoice sent; a month can have several (tags left unticked go on a later one). */
+  id: number;
+  city: City;
   month: string;
   invoice_no: string;
   invoice_date: string;
@@ -708,25 +744,40 @@ export function diffSnapshot(snapshotIds: number[], currentIds: number[]) {
   };
 }
 
-export type MonthRow = { month: string; count: number; invoice: InvoiceSnapshot | null };
+export type MonthRow = {
+  month: string;
+  count: number; // finished tags in this city that month
+  unbilled: number; // of those, tags on no sent invoice yet
+  invoices: InvoiceSnapshot[];
+};
 
-/** Every month with finished work (plus any marked invoiced), newest first. */
-export function monthTable(removedAt: string[], invoices: InvoiceSnapshot[], tz: string): MonthRow[] {
-  const counts = new Map<string, number>();
-  for (const ts of removedAt) {
-    const k = localMonth(ts, tz);
-    counts.set(k, (counts.get(k) ?? 0) + 1);
+/** Every month with finished work for one city (plus any it has invoices for), newest first. */
+export function monthTable(
+  rows: { id: number; removed_at: string; city?: string | null; lat: number; lng: number }[],
+  invoices: InvoiceSnapshot[],
+  tz: string,
+  city: City,
+): MonthRow[] {
+  const billed = new Set(invoices.flatMap((i) => i.job_ids));
+  const map = new Map<string, MonthRow>();
+  const row = (k: string) => {
+    let r = map.get(k);
+    if (!r) map.set(k, (r = { month: k, count: 0, unbilled: 0, invoices: [] }));
+    return r;
+  };
+  for (const r of rows) {
+    if (cityOf(r) !== city) continue;
+    const m = row(localMonth(r.removed_at, tz));
+    m.count += 1;
+    if (!billed.has(r.id)) m.unbilled += 1;
   }
-  const inv = new Map(invoices.map((i) => [i.month, i]));
-  for (const k of inv.keys()) if (!counts.has(k)) counts.set(k, 0);
-  return [...counts.entries()]
-    .sort((a, b) => (a[0] < b[0] ? 1 : -1))
-    .map(([month, count]) => ({ month, count, invoice: inv.get(month) ?? null }));
+  for (const i of invoices) if (i.city === city) row(i.month).invoices.push(i);
+  return [...map.values()].sort((a, b) => (a.month < b.month ? 1 : -1));
 }
 
-/** Past months with finished work that were never marked invoiced. */
+/** Past months with finished work still not on any sent invoice. */
 export function unbilledMonths(table: MonthRow[], currentMonth: string): string[] {
-  return table.filter((r) => r.month < currentMonth && r.count > 0 && !r.invoice).map((r) => r.month);
+  return table.filter((r) => r.month < currentMonth && r.unbilled > 0).map((r) => r.month);
 }
 
 // ---------- CSV (for your own records) ----------
