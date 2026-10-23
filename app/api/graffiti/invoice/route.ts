@@ -5,6 +5,7 @@ import {
   CITIES,
   CITY_NAMES,
   City,
+  billToFor,
   buildCsv,
   buildInvoice,
   clean,
@@ -13,6 +14,7 @@ import {
   isMonth,
   localDate,
   localMonth,
+  poFor,
   monthTable,
   unbilledMonths,
 } from "@/lib/graffiti";
@@ -115,9 +117,9 @@ export async function GET(request: Request) {
         const bytes = await buildInvoiceXlsx(new Uint8Array(await file.arrayBuffer()), sheetBuild, {
           invoiceDate,
           invoiceNo: src.no,
-          poNumber: settings.po_number,
+          poNumber: poFor(settings, city),
           terms: settings.terms,
-          billTo: settings.bill_to.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(0, 5),
+          billTo: billToFor(settings, city).split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(0, 5),
           rateCents: src.terms.rateCents,
           tz,
         });

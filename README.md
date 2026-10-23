@@ -90,6 +90,7 @@ taken. The owner prints a monthly invoice for the city from `/graffiti/invoice`.
 - Invoices are per city. A tag is **Bozeman** or **Helena** by where its pin is
   (the closer city centre); on the invoice page the owner or a crew account with the
   invoice switch can move any one tag to the other city (or back to automatic).
+- Each city is billed to its own department: *Billing settings* has a Bill to address and PO number for Bozeman and one for Helena (rate, minimum and terms are shared). They go on the printed invoice and the Google Sheets file.
 - Each tag still to invoice has a tick box (all ticked to start). Downloads, totals
   and "Mark … as invoiced" use only the ticked tags; unticked tags stay uninvoiced
   and are offered again next time. A city can have several invoices in a month

@@ -15,6 +15,8 @@ import {
   typeName,
   ALL_TYPES,
   billingFor,
+  billToFor,
+  poFor,
   defaultInvoiceNo,
   isCity,
   summarize,
@@ -425,6 +427,11 @@ export default function InvoicePage() {
             <b>Hourly rate is not set</b>, so amounts show as $0.00. {isOwner ? <>Open <i>Billing settings</i> below and enter your rate.</> : "Ask the owner to set it."}
           </div>
         )}
+        {billToFor(S, c).trim() === "" && (
+          <div className={`${styles.panel} ${styles.warn}`} data-testid="no-billto">
+            <b>No &quot;Bill to&quot; address for {cityName} yet</b>, so the invoice has none. {isOwner ? <>Add it under <i>Billing settings</i> below.</> : "Ask the owner to add it."}
+          </div>
+        )}
         {(warn.notime.length > 0 || warn.noaddr.length > 0 || warn.noafter.length > 0) && (
           <div className={`${styles.panel} ${styles.warn}`}>
             <b>Check before you send:</b>
@@ -542,8 +549,12 @@ export default function InvoicePage() {
                   <textarea id="s-addr" value={draft.biz_address} onChange={(e) => setDraft({ ...draft, biz_address: e.target.value })} />
                 </div>
                 <div>
-                  <label className={styles.fl} htmlFor="s-bill">Bill to (city department, address)</label>
+                  <label className={styles.fl} htmlFor="s-bill">Bill to: Bozeman (department, address)</label>
                   <textarea id="s-bill" value={draft.bill_to} onChange={(e) => setDraft({ ...draft, bill_to: e.target.value })} />
+                </div>
+                <div>
+                  <label className={styles.fl} htmlFor="s-bill-helena">Bill to: Helena (department, address)</label>
+                  <textarea id="s-bill-helena" value={draft.bill_to_helena} onChange={(e) => setDraft({ ...draft, bill_to_helena: e.target.value })} />
                 </div>
               </div>
               <div className={styles.grid3} style={{ marginTop: 10 }}>
@@ -566,8 +577,12 @@ export default function InvoicePage() {
                   </select>
                 </div>
                 <div>
-                  <label className={styles.fl} htmlFor="s-po">Contract / PO #</label>
+                  <label className={styles.fl} htmlFor="s-po">Contract / PO #: Bozeman</label>
                   <input id="s-po" type="text" value={draft.po_number} onChange={(e) => setDraft({ ...draft, po_number: e.target.value })} />
+                </div>
+                <div>
+                  <label className={styles.fl} htmlFor="s-po-helena">Contract / PO #: Helena</label>
+                  <input id="s-po-helena" type="text" value={draft.po_number_helena} onChange={(e) => setDraft({ ...draft, po_number_helena: e.target.value })} />
                 </div>
                 <div>
                   <label className={styles.fl} htmlFor="s-terms">Payment terms / note</label>
@@ -613,9 +628,9 @@ export default function InvoicePage() {
             <div>
               <span>Service period</span> {label}
             </div>
-            {S.po_number.trim() !== "" && (
+            {poFor(S, c).trim() !== "" && (
               <div>
-                <span>Contract / PO #</span> {S.po_number}
+                <span>Contract / PO #</span> {poFor(S, c)}
               </div>
             )}
           </div>
@@ -623,7 +638,7 @@ export default function InvoicePage() {
 
         <div className={styles.billto}>
           <small>Bill to</small>
-          {S.bill_to}
+          {billToFor(S, c)}
         </div>
         <div className={styles.terms}>
           Graffiti removal in {cityName}, {label}. Rate {money(rateCents)} per hour, minimum {minMin} minutes billed per tag

@@ -507,8 +507,10 @@ export type BillingSettings = {
   biz_name: string;
   biz_address: string;
   biz_contact: string;
-  bill_to: string;
+  bill_to: string; // Bozeman's invoices
   po_number: string;
+  bill_to_helena: string;
+  po_number_helena: string;
   rate: string; // dollars per hour
   min_minutes: string;
   round_to: string;
@@ -522,6 +524,8 @@ export const SETTING_DEFAULTS: BillingSettings = {
   biz_contact: "",
   bill_to: "",
   po_number: "",
+  bill_to_helena: "",
+  po_number_helena: "",
   rate: "0",
   min_minutes: "30",
   round_to: "1",
@@ -549,6 +553,8 @@ export function sanitizeSettings(input: Record<string, unknown>, current: Billin
     biz_contact: str("biz_contact", 200),
     bill_to: str("bill_to", 400),
     po_number: str("po_number", 80),
+    bill_to_helena: str("bill_to_helena", 400),
+    po_number_helena: str("po_number_helena", 80),
     terms: str("terms", 200),
     rate: current.rate,
     min_minutes: current.min_minutes,
@@ -582,6 +588,9 @@ export function autoCity(lat: number, lng: number): City {
   const d = (c: [number, number]) => (lat - c[0]) ** 2 + ((lng - c[1]) * Math.cos((lat * Math.PI) / 180)) ** 2;
   return d(CITY_CENTERS.helena) < d(CITY_CENTERS.bozeman) ? "helena" : "bozeman";
 }
+/** Each city is billed to its own department: the plain `bill_to` / `po_number` settings are Bozeman's. */
+export const billToFor = (s: BillingSettings, c: City) => (c === "helena" ? s.bill_to_helena : s.bill_to);
+export const poFor = (s: BillingSettings, c: City) => (c === "helena" ? s.po_number_helena : s.po_number);
 /** The city on an invoice: the owner's override when there is one, else worked out from the pin. */
 export function cityOf(r: { city?: string | null; lat: number; lng: number }): City {
   return isCity(r.city) ? r.city : autoCity(r.lat, r.lng);
