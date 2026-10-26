@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { UserButton, useUser } from "@clerk/nextjs";
+import { SignOutButton, UserButton, useUser } from "@clerk/nextjs";
 import WeatherEffects, { WeatherInfo } from "./WeatherEffects";
 import FoodTab, { FoodContent } from "./FoodTab";
 import ProjectsTab from "./ProjectsTab";
@@ -960,6 +960,31 @@ export default function HomePage() {
               )}
             </h1>
             <p className="subline">Your projects, your plans, your place.</p>
+            {realIsOwner && (
+              // Clerk keeps one sign-in per browser, so this signs you out here and opens the crew login,
+              // where you can sign in as a crew account (e.g. to see what crew see). Sign back in at /sign-in.
+              <SignOutButton redirectUrl="/crew">
+                <button
+                  type="button"
+                  data-testid="crew-switch"
+                  title="Signs you out of this account and opens the crew login"
+                  style={{
+                    fontFamily: mono,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    marginTop: 10,
+                    padding: "9px 14px",
+                    borderRadius: 8,
+                    cursor: "pointer",
+                    border: "1px solid var(--surface-border)",
+                    background: "var(--surface)",
+                    color: "var(--accent)",
+                  }}
+                >
+                  Open crew page as another account →
+                </button>
+              </SignOutButton>
+            )}
           </div>
 
           <div className="status">

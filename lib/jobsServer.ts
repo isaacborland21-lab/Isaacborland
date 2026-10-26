@@ -1,7 +1,7 @@
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
-import { canEditTab, canInvoice, PublicMetadata } from "@/lib/supabaseAdmin";
-import { Job, JOB_TYPES, JobType, Material } from "@/lib/jobs";
+import { canInvoice, PublicMetadata } from "@/lib/supabaseAdmin";
+import { canUseJobType, Job, JOB_TYPES, JobType, Material } from "@/lib/jobs";
 import { Db, displayName, fail, fetchAll, isResponse, loadSettings } from "@/lib/graffitiServer";
 import { BillingSettings, InvoiceSnapshot, isCity } from "@/lib/graffiti";
 import { JobInvoiceRow, JobSettings, mergeJobSettings } from "@/lib/jobInvoice";
@@ -14,14 +14,14 @@ export const JOB_COLS =
 
 export type JobWho = { userId: string; owner: boolean; name: string; /** may see and change prices (owner, or the invoice switch on this tab) */ canBill: boolean };
 
-/** Signed in AND allowed on this job tab (owner, or granted the tab in the Admin tab). */
+/** Signed in AND allowed on this job type (owner, granted the tab in the Admin tab, or any graffiti crew account). */
 export async function requireJobs(type: JobType): Promise<JobWho | NextResponse> {
   const { userId } = auth();
   if (!userId) return fail("Not signed in.", 401);
   const client = await clerkClient();
   const user = await client.users.getUser(userId);
   const meta = user.publicMetadata as PublicMetadata;
-  if (!canEditTab(meta, type)) return fail("Not permitted to use this tab.", 403);
+  if (!canUseJobType(meta, type)) return fail("Not permitted to use this tab.", 403);
   return { userId, owner: meta.owner === true, name: displayName(user), canBill: canInvoice(meta, type) };
 }
 
@@ -32,7 +32,7 @@ export async function requireAnyJobTab(): Promise<JobWho | NextResponse> {
   const client = await clerkClient();
   const user = await client.users.getUser(userId);
   const meta = user.publicMetadata as PublicMetadata;
-  if (!JOB_TYPES.some((t) => canEditTab(meta, t))) return fail("Not permitted.", 403);
+  if (!JOB_TYPES.some((t) => canUseJobType(meta, t))) return fail("Not permitted.", 403);
   return { userId, owner: meta.owner === true, name: displayName(user), canBill: false };
 }
 
