@@ -34,6 +34,7 @@ import {
   shiftMonth,
 } from "@/lib/graffiti";
 import { apiJson, photoUrl } from "../clientUtil";
+import MyMapsPanel from "./MyMapsPanel";
 
 type SentInvoice = { snapshot: InvoiceSnapshot; build: InvoiceBuild; dropped: number[]; changed: boolean };
 
@@ -511,6 +512,8 @@ export default function InvoicePage() {
             </ul>
           </div>
         )}
+
+        <MyMapsPanel city={c} />
 
         <details className={styles.panel} open={tpl !== null && !tpl.exists} data-testid="template-panel">
           <summary style={{ cursor: "pointer", fontWeight: 700 }}>

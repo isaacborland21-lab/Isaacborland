@@ -60,6 +60,16 @@ from the main site; an account that has a job tab is not sent there.
 - **One more SQL step for invoices:** re-run `supabase/jobs.sql` (it only adds the `job_invoices` table).
 - Existing installs: nothing to re-run for graffiti; just add `supabase/jobs.sql`.
 
+## Google My Maps export (graffiti)
+
+Graffiti → Invoice → **Google My Maps export**. Pick Bozeman or Helena and a layer (a calendar season:
+Spring Mar-May, Summer Jun-Aug, Fall Sep-Nov, Winter Dec-Feb, or a whole year), then **Download for My Maps (.csv)**.
+In My Maps: Add layer → Import the file → Latitude/Longitude as the location, Name as the title → Uniform style →
+Group places by: **Month** (one color per month). My Maps only imports into an empty layer, so to refresh the
+current season delete its layer and import again; the shared link doesn't change. Limits: 10 layers per map,
+2,000 pins per layer. Bozeman uses one layer per season; Helena is its own map with one layer per year.
+My Maps has no API, so this is a manual import.
+
 ## Graffiti tab (removal tracker + monthly invoice)
 
 Crew log each tag on their phones. Location is auto-filled from GPS, the timer
