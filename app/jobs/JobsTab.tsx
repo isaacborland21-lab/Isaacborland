@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import styles from "../graffiti/graffiti.module.css";
+import extra from "./jobs.module.css";
 import { apiJson, lookupPlace, shrinkPhoto } from "../graffiti/clientUtil";
 import { Elapsed, PhotoButton, errMsg, fmtDate, fmtTime } from "../graffiti/GraffitiTab";
 import { CITIES, CITY_NAMES, City, MAX_MINUTES, autoCity, fmtDur, isCity, money } from "@/lib/graffiti";
@@ -496,7 +497,7 @@ function AddForm({ jtype, canBill, toast, onCreated }: { jtype: JobType; canBill
         placeholder={jtype === "lawn" ? "e.g. Mow City Hall lawn" : jtype === "workorders" ? "e.g. Replace park bench slats" : "What is the job?"}
         value={title}
         aria-invalid={(showErr && !title.trim()) || undefined}
-        className={showErr && !title.trim() ? styles.invalid : undefined}
+        className={showErr && !title.trim() ? extra.blank : undefined}
         onChange={(e) => setTitle(e.target.value)}
       />
 

@@ -802,7 +802,11 @@ export default function HomePage() {
   const crewOnly =
     !preview &&
     realMeta.owner !== true &&
-    (realMeta.tabAdmin?.graffiti === true || realMeta.tabAdmin?.workorders === true || realMeta.tabAdmin?.lawn === true || realMeta.tabAdmin?.otherjobs === true) &&
+    realMeta.tabAdmin?.graffiti === true &&
+    // the job tabs live on the main site for now: anyone who has one is not sent to /crew
+    !realMeta.tabAdmin?.workorders &&
+    !realMeta.tabAdmin?.lawn &&
+    !realMeta.tabAdmin?.otherjobs &&
     !realMeta.tabAdmin?.home &&
     !realMeta.tabAdmin?.projects &&
     !realMeta.tabAdmin?.food;

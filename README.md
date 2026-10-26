@@ -30,8 +30,9 @@ own list, so work orders, lawn care and other jobs never mix. Graffiti is unchan
 
 **One-time setup:** run `supabase/jobs.sql` in the Supabase SQL editor (creates the `jobs` table; photos go in
 the existing private `graffiti` bucket). Then Admin tab → tick **work orders**, **lawn care** and/or
-**other jobs** for each person. Someone who has only these (no hub tabs) is sent to `/crew`, which shows just
-their trackers (a small switcher when they have more than one).
+**other jobs** for each person. For now these tabs live on the main site only: the `/crew` page and the
+graffiti crew redirect are unchanged (graffiti-only crew accounts still land on `/crew`), and an account
+that has a job tab is not sent to `/crew`.
 
 - A job has a **title**, optional **work order #**, a **city** (Helena or Bozeman, required), an address
   (typed, or **Use GPS** to fill it in and pick the city), notes, and before/after photos.
