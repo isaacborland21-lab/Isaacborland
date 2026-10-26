@@ -31,6 +31,17 @@ export const JOB_TYPE_ONE: Record<JobType, string> = {
   otherjobs: "job",
 };
 
+/**
+ * May log and see jobs of this type (work orders / lawn care / other jobs): the owner, anyone given that tab in Admin,
+ * and any graffiti crew account (so crew can pick the job type on the crew page without three more switches each).
+ * Prices stay hidden: seeing them still needs the tab plus the invoice switch (canInvoice in supabaseAdmin).
+ * Kept here, not in supabaseAdmin, so the crew page can use it without pulling server code into the browser.
+ */
+export function canUseJobType(meta: { owner?: boolean; tabAdmin?: Record<string, boolean | undefined> } | null | undefined, type: JobType): boolean {
+  if (!meta) return false;
+  return meta.owner === true || meta.tabAdmin?.[type] === true || meta.tabAdmin?.graffiti === true;
+}
+
 export function isJobType(v: unknown): v is JobType {
   return typeof v === "string" && (JOB_TYPES as readonly string[]).includes(v);
 }

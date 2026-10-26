@@ -1,13 +1,20 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { SignIn, SignOutButton, UserButton, useUser } from "@clerk/nextjs";
 import AliveBackground from "../AliveBackground";
 import GraffitiTab from "../graffiti/GraffitiTab";
+import JobsTab from "../jobs/JobsTab";
+import { JOB_TYPES, JobType, canUseJobType } from "@/lib/jobs";
 import type { PublicMetadata } from "@/lib/supabaseAdmin";
 
-// Crew entry point: sign in here and the graffiti tracker is the ONLY thing on the page (no other tabs).
-// Showing or hiding is only cosmetic. The real permission check is in the /api/graffiti routes.
+// Crew entry point: sign in here and pick the kind of job (graffiti, work order, lawn care, other), then log it.
+// Graffiti is the default and works exactly as before. Showing or hiding is only cosmetic:
+// the real permission checks are in the /api/graffiti and /api/jobs routes (prices are never sent to crew without the invoice switch).
+
+type Kind = "graffiti" | JobType;
+const KIND_LABEL: Record<Kind, string> = { graffiti: "Graffiti", workorders: "Work order", lawn: "Lawn care", otherjobs: "Other job" };
+const KIND_KEY = "crew_kind";
 
 const mono = "'IBM Plex Mono', monospace";
 const sans = "'IBM Plex Sans', sans-serif";
@@ -43,6 +50,8 @@ const wrap = {
 
 export default function CrewPage() {
   const { user, isLoaded, isSignedIn } = useUser();
+  const [kind, setKind] = useState<Kind>("graffiti");
+  const [visited, setVisited] = useState<Set<Kind>>(new Set<Kind>(["graffiti"])); // a tab stays mounted once opened, so a half-filled form isn't lost when switching
 
   // One-time flag so the main page can send a crew sign-in back here if Clerk lands it there.
   useEffect(() => {
@@ -54,6 +63,29 @@ export default function CrewPage() {
       /* private mode: skip */
     }
   }, [isLoaded, isSignedIn]);
+
+  // Remember the last kind of job picked on this phone (graffiti is always the starting point on a fresh phone).
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(KIND_KEY);
+      if (saved === "graffiti" || (JOB_TYPES as readonly string[]).includes(saved ?? "")) {
+        setKind(saved as Kind);
+        setVisited((v) => new Set(v).add(saved as Kind));
+      }
+    } catch {
+      /* private mode: skip */
+    }
+  }, []);
+
+  function pick(k: Kind) {
+    setKind(k);
+    setVisited((v) => new Set(v).add(k));
+    try {
+      window.localStorage.setItem(KIND_KEY, k);
+    } catch {
+      /* private mode: skip */
+    }
+  }
 
   if (!isLoaded) {
     return (
@@ -89,7 +121,10 @@ export default function CrewPage() {
 
   const meta = (user?.publicMetadata ?? {}) as PublicMetadata;
   const isOwner = meta.owner === true;
-  const allowed = isOwner || meta.tabAdmin?.graffiti === true;
+  const hasGraffiti = isOwner || meta.tabAdmin?.graffiti === true;
+  const kinds: Kind[] = [...(hasGraffiti ? (["graffiti"] as Kind[]) : []), ...JOB_TYPES.filter((t) => canUseJobType(meta, t))];
+  const allowed = kinds.length > 0;
+  const current: Kind = kinds.includes(kind) ? kind : kinds[0];
 
   if (!allowed) {
     return (
@@ -148,8 +183,48 @@ export default function CrewPage() {
             </a>
           )}
         </header>
+        {kinds.length > 1 && (
+          <div
+            role="group"
+            aria-label="What kind of job"
+            data-testid="kind-picker"
+            style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8, marginBottom: 16 }}
+          >
+            {kinds.map((k) => (
+              <button
+                key={k}
+                type="button"
+                aria-pressed={current === k}
+                data-testid={`kind-${k}`}
+                onClick={() => pick(k)}
+                style={{
+                  fontFamily: sans,
+                  fontSize: 16,
+                  fontWeight: 700,
+                  minHeight: 52,
+                  borderRadius: 12,
+                  cursor: "pointer",
+                  border: `2px solid ${current === k ? "var(--accent)" : "var(--surface-border)"}`,
+                  background: current === k ? "var(--accent)" : "var(--surface)",
+                  color: current === k ? "#fff" : "var(--text)",
+                }}
+              >
+                {KIND_LABEL[k]}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="tab-content">
-          <GraffitiTab isOwner={isOwner} canInvoice={isOwner || meta.tabAdmin?.invoice === true} />
+          {hasGraffiti && (visited.has("graffiti") || current === "graffiti") && (
+            <div hidden={current !== "graffiti"}>
+              <GraffitiTab isOwner={isOwner} canInvoice={isOwner || meta.tabAdmin?.invoice === true} />
+            </div>
+          )}
+          {JOB_TYPES.filter((t) => kinds.includes(t) && (visited.has(t) || current === t)).map((t) => (
+            <div key={t} hidden={current !== t}>
+              <JobsTab jtype={t} isOwner={isOwner} />
+            </div>
+          ))}
         </div>
       </main>
     </>
