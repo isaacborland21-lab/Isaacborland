@@ -47,9 +47,9 @@ const BADGE: Record<GraffitiStatus, string> = {
   removed: styles.bRemoved,
 };
 
-const fmtDate = (iso: string | null) =>
+export const fmtDate = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "";
-const fmtTime = (iso: string | null) =>
+export const fmtTime = (iso: string | null) =>
   iso ? new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : "";
 
 function elapsedText(startIso: string): string {
@@ -61,7 +61,7 @@ function elapsedText(startIso: string): string {
 }
 
 /** A running clock for one job (ticks on its own so the rest of the tab doesn't re-render every second). */
-function Elapsed({ start, className }: { start: string; className?: string }) {
+export function Elapsed({ start, className }: { start: string; className?: string }) {
   const [, tick] = useState(0);
   useEffect(() => {
     const t = window.setInterval(() => tick((n) => n + 1), 1000);
@@ -90,7 +90,7 @@ const writeStore = (k: string, v: string) => {
 };
 
 type Toast = (msg: string) => void;
-const errMsg = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong.");
+export const errMsg = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong.");
 
 /* ======================================================================
    Main tab
@@ -1143,7 +1143,7 @@ function PhotoFig({ label, name }: { label: string; name: string | null }) {
   );
 }
 
-function PhotoButton({
+export function PhotoButton({
   text,
   sub,
   go,

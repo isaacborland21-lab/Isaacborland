@@ -13,8 +13,8 @@ export async function PUT(request: Request, { params }: { params: { tab: string 
     return NextResponse.json({ error: "Unknown tab." }, { status: 400 });
   }
 
-  // The graffiti tracker stores its own data in its own tables; it has no editable page content.
-  if (tab === "graffiti") {
+  // The graffiti tracker and the job tabs store their own data in their own tables; they have no editable page content.
+  if (tab === "graffiti" || tab === "workorders" || tab === "lawn" || tab === "otherjobs") {
     return NextResponse.json({ error: "This tab has no editable content." }, { status: 400 });
   }
 

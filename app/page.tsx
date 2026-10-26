@@ -6,6 +6,7 @@ import WeatherEffects, { WeatherInfo } from "./WeatherEffects";
 import FoodTab, { FoodContent } from "./FoodTab";
 import ProjectsTab from "./ProjectsTab";
 import GraffitiTab from "./graffiti/GraffitiTab";
+import JobsTab from "./jobs/JobsTab";
 import { normalizeProjects, Project } from "@/lib/projects";
 import { readUrl, writeUrl } from "@/lib/urlState";
 import AliveBackground from "./AliveBackground";
@@ -18,7 +19,7 @@ const seasonLabels: Record<string, string> = {
   summer: "Summer theme",
 };
 
-const baseTabs = ["Home", "Projects", "Graffiti", "Food", "About", "Contact"] as const;
+const baseTabs = ["Home", "Projects", "Graffiti", "Work orders", "Lawn care", "Other jobs", "Food", "About", "Contact"] as const;
 type Tab = (typeof baseTabs)[number] | "Admin";
 
 const mono = "'IBM Plex Mono', monospace";
@@ -87,7 +88,7 @@ type TabContentData = {
   contact: ContactContent;
 };
 
-type EditableTab = "home" | "projects" | "graffiti" | "food" | "about" | "contact";
+type EditableTab = "home" | "projects" | "graffiti" | "workorders" | "lawn" | "otherjobs" | "food" | "about" | "contact";
 
 // Which nav tab corresponds to each permission key, in display order —
 // used to build the visible tab list for a given identity (real or
@@ -96,6 +97,9 @@ const tabLabelForKey: Record<EditableTab, Tab> = {
   home: "Home",
   projects: "Projects",
   graffiti: "Graffiti",
+  workorders: "Work orders",
+  lawn: "Lawn care",
+  otherjobs: "Other jobs",
   food: "Food",
   about: "About",
   contact: "Contact",
@@ -363,17 +367,20 @@ function ContactTab({
   );
 }
 
-const editableTabKeys = ["home", "projects", "graffiti", "food", "about", "contact"] as const;
-// What the Admin tab can switch on per user: every tab, plus "invoice" (the graffiti invoice for crew accounts).
+const editableTabKeys = ["home", "projects", "graffiti", "workorders", "lawn", "otherjobs", "food", "about", "contact"] as const;
+// What the Admin tab can switch on per user: every tab, plus "invoice" (the invoice + prices for the job tabs that person has).
 const permissionKeys = [...editableTabKeys, "invoice"] as const;
 const permissionLabel: Record<(typeof permissionKeys)[number], string> = {
   home: "home",
   projects: "projects",
   graffiti: "graffiti",
+  workorders: "work orders",
+  lawn: "lawn care",
+  otherjobs: "other jobs",
   food: "food",
   about: "about",
   contact: "contact",
-  invoice: "graffiti invoice",
+  invoice: "invoice (prices)",
 };
 
 function AdminTab({
@@ -591,6 +598,29 @@ function Icon({ name }: { name: Tab }) {
           <path d="M17 6.5h.01M19.5 4.5h.01M19.5 8.5h.01M17 10.5h.01M19.5 12.5h.01" strokeWidth={2.4} />
         </svg>
       );
+    case "Work orders":
+      return (
+        <svg {...common}>
+          <rect x="5" y="4.5" width="14" height="16" rx="2" />
+          <path d="M9 4.5V3h6v1.5" />
+          <path d="M8.5 10h7M8.5 13.5h7M8.5 17h4" />
+        </svg>
+      );
+    case "Lawn care":
+      return (
+        <svg {...common}>
+          <path d="M3 20.5h18" />
+          <path d="M6 20.5c0-4 .5-7 2-10 .5 3 1.5 5 1.5 10" />
+          <path d="M11 20.5c0-5 .8-9 3-13 .6 4.5 1.8 8 1.8 13" />
+          <path d="M16.5 20.5c0-3 .5-5.5 2-8 .4 2.5.5 5 .5 8" />
+        </svg>
+      );
+    case "Other jobs":
+      return (
+        <svg {...common}>
+          <path d="M14.5 6.5a4 4 0 0 0-5 5L4 17l3 3 5.5-5.5a4 4 0 0 0 5-5l-2.5 2.5-2-.5-.5-2z" />
+        </svg>
+      );
     case "Food":
       return (
         <svg {...common}>
@@ -773,6 +803,10 @@ export default function HomePage() {
     !preview &&
     realMeta.owner !== true &&
     realMeta.tabAdmin?.graffiti === true &&
+    // the job tabs live on the main site for now: anyone who has one is not sent to /crew
+    !realMeta.tabAdmin?.workorders &&
+    !realMeta.tabAdmin?.lawn &&
+    !realMeta.tabAdmin?.otherjobs &&
     !realMeta.tabAdmin?.home &&
     !realMeta.tabAdmin?.projects &&
     !realMeta.tabAdmin?.food;
@@ -791,7 +825,7 @@ export default function HomePage() {
       window.location.replace("/crew");
     }
   }, [isLoaded, user, crewOnly]);
-  const usesContent = active !== "Admin" && active !== "Graffiti";
+  const usesContent = active !== "Admin" && active !== "Graffiti" && active !== "Work orders" && active !== "Lawn care" && active !== "Other jobs";
 
   // Keep the active tab in sync with what's actually visible: a shared
   // ?tab=admin link does nothing for non-owners (send them Home), and
@@ -1006,6 +1040,9 @@ export default function HomePage() {
             />
           )}
           {active === "Graffiti" && canEdit("graffiti") && <GraffitiTab isOwner={isOwner} canInvoice={isOwner || effectiveMetadata.tabAdmin?.invoice === true} />}
+          {active === "Work orders" && canEdit("workorders") && <JobsTab key="workorders" jtype="workorders" isOwner={isOwner} />}
+          {active === "Lawn care" && canEdit("lawn") && <JobsTab key="lawn" jtype="lawn" isOwner={isOwner} />}
+          {active === "Other jobs" && canEdit("otherjobs") && <JobsTab key="otherjobs" jtype="otherjobs" isOwner={isOwner} />}
           {content && active === "Food" && canEdit("food") && (
             <FoodTab data={food} editable={canEdit("food")} onSave={(d) => saveTab("food", d)} />
           )}
