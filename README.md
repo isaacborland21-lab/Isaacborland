@@ -52,6 +52,11 @@ from the main site; an account that has a job tab is not sent there.
   are shared with the graffiti invoice. Download CSV or print/save as PDF with before/after photos. A job on a
   sent invoice can't be deleted or have its city, status, time or price changed until the invoice is undone.
   Google Sheets (.xlsx) output for jobs is not built yet.
+- **Date ranges:** both invoice pages (graffiti and jobs) have a **Month | Date range** switch. Pick any start and end day
+  (both included, up to a year) to invoice work finished in between, e.g. Oct 15 - Nov 5. Month invoicing works as before.
+  A range invoice keeps its own dates, so it can be viewed, downloaded and undone like any other, and its jobs are
+  never offered again on a month view. Run the two `alter table ... add column date_from / date_to` lines at the end of
+  `supabase/graffiti.sql` and `supabase/jobs.sql` once (safe to re-run).
 - **One more SQL step for invoices:** re-run `supabase/jobs.sql` (it only adds the `job_invoices` table).
 - Existing installs: nothing to re-run for graffiti; just add `supabase/jobs.sql`.
 

@@ -58,3 +58,7 @@ create table if not exists public.job_invoices (
 create index if not exists job_invoices_type_city_month on public.job_invoices (jtype, city, month);
 alter table public.job_invoices enable row level security;
 -- Per-type rates and Bill to / PO numbers are kept in graffiti_settings under keys like "workorders.rate".
+
+-- Invoices for a date range, not just a whole month (safe to re-run). Null = the whole month.
+alter table public.job_invoices add column if not exists date_from date;
+alter table public.job_invoices add column if not exists date_to date;

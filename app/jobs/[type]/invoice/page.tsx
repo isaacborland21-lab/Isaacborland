@@ -18,8 +18,11 @@ import {
   hours,
   isCity,
   isMonth,
+  isDate,
   money,
+  monthBounds,
   monthLabel,
+  periodLabel,
   shiftMonth,
 } from "@/lib/graffiti";
 import { BILL_MODES, BILL_MODE_LABEL, JOB_TYPE_LABEL, JobType, isJobType } from "@/lib/jobs";
@@ -31,6 +34,9 @@ type SentInvoice = { snapshot: InvoiceSnapshot; build: JobBuild; dropped: number
 type InvoiceData = {
   type: JobType;
   month: string;
+  /** set when the page is showing a date range instead of a whole month */
+  from: string | null;
+  to: string | null;
   city: City;
   currentMonth: string;
   shared: BillingSettings;
@@ -60,6 +66,7 @@ export default function JobInvoicePage() {
   const backHref = `/?tab=${encodeURIComponent(label.toLowerCase())}`;
 
   const [month, setMonth] = useState<string | null>(null); // null until the address bar has been read
+  const [range, setRange] = useState<{ from: string; to: string } | null>(null); // a date range instead of a whole month
   const [city, setCity] = useState<City | "">(""); // "" = let the server pick the city with the most jobs to invoice
   const [unticked, setUnticked] = useState<Set<number>>(new Set());
   const [viewId, setViewId] = useState<number | null>(null); // a sent invoice being looked at; null = the one being prepared
@@ -78,8 +85,16 @@ export default function JobInvoicePage() {
     const q = new URLSearchParams(window.location.search);
     const m = q.get("month");
     const c = q.get("city");
+    const f = q.get("from");
+    const t = q.get("to");
     setCity(isCity(c) ? c : "");
-    setMonth(isMonth(m) ? m : "");
+    if (isDate(f) && isDate(t) && f <= t) {
+      setRange({ from: f, to: t });
+      setMonth(f.slice(0, 7));
+    } else {
+      setRange(null);
+      setMonth(isMonth(m) ? m : "");
+    }
   }, [label]);
 
   const load = useCallback(
@@ -87,7 +102,7 @@ export default function JobInvoicePage() {
       setLoading(true);
       if (!keepFlash) setFlash(null);
       try {
-        const qs = [m ? `month=${m}` : "", c ? `city=${c}` : ""].filter(Boolean).join("&");
+        const qs = [range ? `from=${range.from}&to=${range.to}` : m ? `month=${m}` : "", c ? `city=${c}` : ""].filter(Boolean).join("&");
         const d = await apiJson<InvoiceData>(`${api}${qs ? `?${qs}` : ""}`);
         setData(d);
         setError(null);
@@ -99,18 +114,35 @@ export default function JobInvoicePage() {
       }
       setLoading(false);
     },
-    [api],
+    [api, range],
   );
 
   useEffect(() => {
     if (type && month !== null) void load(month, city);
   }, [type, month, city, load]);
 
+  // a whole month
   function go(m: string, c: City | "" = city) {
     window.history.replaceState(null, "", `${pageUrl}?month=${m}${c ? `&city=${c}` : ""}`);
     setUnticked(new Set());
     setViewId(null);
+    setRange(null);
     setMonth(m);
+    setCity(c);
+  }
+  // any start and end day (both included)
+  function goRange(from: string, to: string, c: City | "" = city) {
+    if (!isDate(from) || !isDate(to)) return;
+    if (from > to) {
+      setFlash({ kind: "bad", text: "The start date is after the end date." });
+      return;
+    }
+    window.history.replaceState(null, "", `${pageUrl}?from=${from}&to=${to}${c ? `&city=${c}` : ""}`);
+    setUnticked(new Set());
+    setViewId(null);
+    setFlash(null);
+    setRange({ from, to });
+    setMonth(from.slice(0, 7));
     setCity(c);
   }
 
@@ -129,11 +161,12 @@ export default function JobInvoicePage() {
   async function mark(ids: number[], cents: number) {
     if (!data) return;
     const { month: m, city: c, currentMonth } = data;
+    const notOver = range ? range.to >= data.today : m >= currentMonth;
     const msg =
-      `Mark ${plural(ids.length, "job")} as invoiced as ${invNo} (${CITY_NAMES[c]}, ${monthLabel(m)}) for ${money(cents)}?` +
-      (m >= currentMonth ? "\n\nThis month is not over yet. Jobs finished later will not be on this invoice." : "");
+      `Mark ${plural(ids.length, "job")} as invoiced as ${invNo} (${CITY_NAMES[c]}, ${periodLabel(m, range?.from, range?.to)}) for ${money(cents)}?` +
+      (notOver ? `\n\nThis ${range ? "date range" : "month"} is not over yet. Jobs finished later will not be on this invoice.` : "");
     if (!window.confirm(msg)) return;
-    await post({ action: "mark", month: m, city: c, ids, invoice_no: invNo, invoice_date: invDate }, "Marked as invoiced.");
+    await post({ action: "mark", ...(range ? { from: range.from, to: range.to } : { month: m }), city: c, ids, invoice_no: invNo, invoice_date: invDate }, "Marked as invoiced.");
     setUnticked(new Set());
   }
 
@@ -205,13 +238,14 @@ export default function JobInvoicePage() {
     noafter: shownLines.filter((l) => !l.after_photo).map((l) => l.id),
   };
   const needsRate = !viewing && rateCents === 0 && shownLines.some((l) => l.bill_mode !== "flat");
-  const monthName = monthLabel(m);
+  const monthName = periodLabel(m, range?.from, range?.to);
+  const periodQs = range ? `from=${range.from}&to=${range.to}` : `month=${m}`;
   const cityName = CITY_NAMES[c];
-  const noteNo = inv ? inv.invoice_no : invNo.trim() || jobInvoiceNo(type, m, c);
+  const noteNo = inv ? inv.invoice_no : invNo.trim() || data.invoiceNo || jobInvoiceNo(type, m, c);
   const sheetDate = inv ? inv.invoice_date : invDate;
   const tickedIds = shownLines.map((l) => l.id);
   const dl = viewing ? `invoice=${viewing.snapshot.id}` : `ids=${tickedIds.join(",")}&inv=${encodeURIComponent(noteNo)}${invDate ? `&date=${invDate}` : ""}`;
-  const csvHref = `${api}?month=${m}&city=${c}&format=csv&${dl}`;
+  const csvHref = `${api}?${periodQs}&city=${c}&format=csv&${dl}`;
   const toggle = (id: number) =>
     setUnticked((cur) => {
       const n = new Set(cur);
@@ -225,6 +259,11 @@ export default function JobInvoicePage() {
     <div className={styles.page} aria-busy={loading} data-testid={`job-invoice-${type}`}>
       <div className={`${styles.bar} ${styles.noprint}`}>
         <div className={styles.panel}>
+          <div style={{ marginBottom: 10 }}>
+            <a className={`${styles.btn} ${styles.sec}`} href={backHref} data-testid="back-link">
+              ← Back to {lower}
+            </a>
+          </div>
           <h2 style={{ margin: "0 0 10px", fontSize: 18 }}>{label} invoice</h2>
           <div className={styles.ctl} role="group" aria-label="City" style={{ marginBottom: 10 }}>
             {CITIES.map((k) => (
@@ -241,23 +280,56 @@ export default function JobInvoicePage() {
               </button>
             ))}
           </div>
+          <div className={styles.ctl} role="group" aria-label="Invoice period" style={{ marginBottom: 10 }}>
+            <button type="button" className={`${styles.btn} ${range ? styles.sec : ""}`} aria-pressed={!range} data-testid="mode-month" onClick={() => range && go(range.from.slice(0, 7))}>
+              Month
+            </button>
+            <button
+              type="button"
+              className={`${styles.btn} ${range ? "" : styles.sec}`}
+              aria-pressed={!!range}
+              data-testid="mode-range"
+              onClick={() => {
+                if (range) return;
+                const b = monthBounds(m);
+                goRange(b.from, data.today >= b.from && data.today < b.to ? data.today : b.to);
+              }}
+            >
+              Date range
+            </button>
+          </div>
           <div className={styles.ctl}>
-            <div>
-              <label>&nbsp;</label>
-              <button type="button" className={`${styles.btn} ${styles.sec}`} aria-label="Previous month" onClick={() => go(shiftMonth(m, -1))}>
-                ←
-              </button>
-            </div>
-            <div>
-              <label htmlFor="inv-month">Month</label>
-              <input id="inv-month" type="month" value={m} onChange={(e) => isMonth(e.target.value) && go(e.target.value)} />
-            </div>
-            <div>
-              <label>&nbsp;</label>
-              <button type="button" className={`${styles.btn} ${styles.sec}`} aria-label="Next month" onClick={() => go(shiftMonth(m, 1))}>
-                →
-              </button>
-            </div>
+            {range ? (
+              <>
+                <div>
+                  <label htmlFor="inv-from">From</label>
+                  <input id="inv-from" type="date" value={range.from} max={range.to} onChange={(e) => goRange(e.target.value, range.to)} />
+                </div>
+                <div>
+                  <label htmlFor="inv-to">To (included)</label>
+                  <input id="inv-to" type="date" value={range.to} min={range.from} onChange={(e) => goRange(range.from, e.target.value)} />
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label>&nbsp;</label>
+                  <button type="button" className={`${styles.btn} ${styles.sec}`} aria-label="Previous month" onClick={() => go(shiftMonth(m, -1))}>
+                    ←
+                  </button>
+                </div>
+                <div>
+                  <label htmlFor="inv-month">Month</label>
+                  <input id="inv-month" type="month" value={m} onChange={(e) => isMonth(e.target.value) && go(e.target.value)} />
+                </div>
+                <div>
+                  <label>&nbsp;</label>
+                  <button type="button" className={`${styles.btn} ${styles.sec}`} aria-label="Next month" onClick={() => go(shiftMonth(m, 1))}>
+                    →
+                  </button>
+                </div>
+              </>
+            )}
             <div style={{ width: 170 }}>
               <label htmlFor="inv-no">Invoice #</label>
               <input id="inv-no" type="text" maxLength={40} value={inv ? inv.invoice_no : invNo} disabled={!!inv} onChange={(e) => setInvNo(e.target.value)} />
@@ -280,9 +352,6 @@ export default function JobInvoicePage() {
             <a className={`${styles.btn} ${styles.sec}`} href={csvHref} data-testid="csv-link">
               Download CSV (with actual times)
             </a>
-            <a className={`${styles.btn} ${styles.sec}`} href={backHref}>
-              ← Back to {lower}
-            </a>
           </div>
         </div>
 
@@ -295,9 +364,10 @@ export default function JobInvoicePage() {
         {/* invoices already sent for this city and month */}
         {sent.map((x) => {
           const sn = x.snapshot;
+          const snLabel = periodLabel(sn.month, sn.date_from, sn.date_to);
           return (
             <div key={sn.id} className={`${styles.panel} ${styles.ok}`} data-testid="invoiced-panel">
-              <span className={`${styles.pill} ${styles.pg}`}>Invoiced</span> <b>{sn.invoice_no}</b> · {cityName}, {monthName} · marked invoiced {fmtLongDate(sn.invoiced_at, tz)}:{" "}
+              <span className={`${styles.pill} ${styles.pg}`}>Invoiced</span> <b>{sn.invoice_no}</b> · {cityName}, {snLabel} · marked invoiced {fmtLongDate(sn.invoiced_at, tz)}:{" "}
               <b>{money(sn.total_cents)}</b> for {plural(sn.jobs, "job")} ({money(sn.rate_cents)}/hr, {sn.min_minutes}-min minimum).
               {!x.dropped.length && !x.changed && (
                 <span className={styles.sub} style={{ color: "#1e6b34" }}>
@@ -306,7 +376,7 @@ export default function JobInvoicePage() {
               )}
               {x.dropped.length > 0 && (
                 <span className={styles.sub} style={{ color: "#8a5a00" }}>
-                  <b>No longer qualify:</b> job {jobList(x.dropped)} was on this invoice but is not a finished {cityName} job in {monthName} now (status, date or city changed).
+                  <b>No longer qualify:</b> job {jobList(x.dropped)} was on this invoice but is not a finished {cityName} job in {snLabel} now (status, date or city changed).
                 </span>
               )}
               {x.changed && (
@@ -596,7 +666,7 @@ export default function JobInvoicePage() {
 
         {build.lines.length === 0 ? (
           <div className={styles.empty}>
-            No {lower} jobs still to invoice for {cityName} in {monthName}.
+            No {lower} jobs still to invoice for {cityName}, {monthName}.
           </div>
         ) : (
           <>

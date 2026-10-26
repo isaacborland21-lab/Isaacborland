@@ -17,6 +17,11 @@ import {
   poFor,
   monthTable,
   unbilledMonths,
+  parsePeriod,
+  periodOf,
+  rangeInvoiceNo,
+  rangesOverlap,
+  snapRange,
 } from "@/lib/graffiti";
 import {
   BUCKET,
@@ -33,11 +38,6 @@ import {
 
 export const dynamic = "force-dynamic";
 
-/** Last day of a YYYY-MM month as YYYY-MM-DD (the template's Date box shows the month end). */
-function monthEnd(month: string): string {
-  const [y, m] = month.split("-").map(Number);
-  return `${month}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}`;
-}
 export const revalidate = 0;
 export const fetchCache = "force-no-store";
 
@@ -49,6 +49,7 @@ export const fetchCache = "force-no-store";
 // is the unbilled ones (the page ticks which of them go on it); sent invoices keep their exact tag list.
 //
 // GET /api/graffiti/invoice?month=YYYY-MM&city=helena           -> the page data (JSON)
+// GET /api/graffiti/invoice?from=YYYY-MM-DD&to=YYYY-MM-DD&city=helena  -> same, for a date range instead of a month
 // GET ...&format=csv|xlsx[&ids=1,2,3][&invoice=<id>][&date=][&inv=] -> download the ticked tags, or a sent invoice
 const idList = (raw: string | null): number[] | null => {
   if (raw === null) return null;
@@ -66,21 +67,27 @@ export async function GET(request: Request) {
     const [settings, rows, invoices] = await Promise.all([loadSettings(db), loadFinished(db), loadInvoices(db)]);
     const tz = settings.tz;
     const currentMonth = localMonth(new Date().toISOString(), tz);
-    const wanted = url.searchParams.get("month");
-    if (wanted !== null && !isMonth(wanted)) return fail("Bad month (use YYYY-MM).", 400);
-    const month = wanted ?? currentMonth;
+    // a whole month (default), or a date range with ?from=YYYY-MM-DD&to=YYYY-MM-DD (both days included)
+    const per = parsePeriod({ month: url.searchParams.get("month"), from: url.searchParams.get("from"), to: url.searchParams.get("to") }, currentMonth);
+    if (!per.ok) return fail(per.error, 400);
+    const { month, range } = per;
+    const span = periodOf({ month, date_from: range?.from, date_to: range?.to });
+    const period = range ? { from: range.from, to: range.to } : {};
     const cityParam = url.searchParams.get("city");
     if (cityParam !== null && !isCity(cityParam)) return fail("Bad city.", 400);
 
     const billedIds = new Set(invoices.flatMap((i) => i.job_ids));
     const unbilledRows = rows.filter((r) => !billedIds.has(r.id));
     // no city asked for: open the one with the most tags still to invoice this month
-    const unbilledBy = (c: City) => buildInvoice(unbilledRows, { month, tz, rateCents: 0, minMin: 0, roundTo: 1, city: c }).tot.jobs;
+    const unbilledBy = (c: City) => buildInvoice(unbilledRows, { month, tz, ...period, rateCents: 0, minMin: 0, roundTo: 1, city: c }).tot.jobs;
     const city: City = cityParam ?? (unbilledBy("helena") > unbilledBy("bozeman") ? "helena" : "bozeman");
 
-    const sent = invoices.filter((i) => i.city === city && i.month === month);
+    // sent invoices that cover any of the days on screen (a month invoice, or a range invoice that overlaps)
+    const sent = invoices.filter((i) => i.city === city && rangesOverlap(periodOf(i), span));
     const bill = billingFor(settings, null);
-    const nextNo = defaultInvoiceNo(month, city, sent.length + 1);
+    const nextNo = range
+      ? rangeInvoiceNo(city, range.from, range.to, invoices.map((i) => i.invoice_no))
+      : defaultInvoiceNo(month, city, invoices.filter((i) => i.city === city && i.month === month && !i.date_from).length + 1);
     const ids = idList(url.searchParams.get("ids"));
     const sentId = url.searchParams.get("invoice");
     const picked = sentId !== null ? sent.find((i) => String(i.id) === sentId) : undefined;
@@ -90,8 +97,10 @@ export async function GET(request: Request) {
     const src = picked
       ? { snap: picked, no: picked.invoice_no, terms: billingFor(settings, picked), only: picked.job_ids, rows }
       : { snap: null, no: clean(url.searchParams.get("inv"), 40) ?? nextNo, terms: bill, only: ids ?? undefined, rows: unbilledRows };
-    const build = buildInvoice(src.rows, { month, tz, ...src.terms, city, only: src.only });
-    const slug = `${city}-${month}${picked ? `-${picked.id}` : ""}`;
+    // a sent invoice is always rebuilt over its own days; the working invoice over the days on screen
+    const own = picked ? { month: picked.month, ...snapRange(picked) } : { month, ...period };
+    const build = buildInvoice(src.rows, { ...own, tz, ...src.terms, city, only: src.only });
+    const slug = `${city}-${range ? `${range.from}_${range.to}` : month}${picked ? `-${picked.id}` : ""}`;
 
     if (url.searchParams.get("format") === "csv") {
       const csv = buildCsv(build, { invNo: src.no, tz, rateCents: src.terms.rateCents });
@@ -110,9 +119,9 @@ export async function GET(request: Request) {
       if (build.tot.jobs === 0) return fail(`There are no tags selected for this ${CITY_NAMES[city]} invoice.`, 400);
       // The template bills in half-hour steps with a half-hour minimum (that is what its formulas do),
       // so the sheet always uses 30 / 30 whatever the on-screen rounding setting is.
-      const sheetBuild = buildInvoice(src.rows, { month, tz, rateCents: src.terms.rateCents, minMin: 30, roundTo: 30, city, only: src.only });
+      const sheetBuild = buildInvoice(src.rows, { ...own, tz, rateCents: src.terms.rateCents, minMin: 30, roundTo: 30, city, only: src.only });
       const dateParam = url.searchParams.get("date") ?? "";
-      const invoiceDate = /^\d{4}-\d{2}-\d{2}$/.test(dateParam) && !Number.isNaN(Date.parse(dateParam)) ? dateParam : src.snap?.invoice_date ?? monthEnd(month);
+      const invoiceDate = /^\d{4}-\d{2}-\d{2}$/.test(dateParam) && !Number.isNaN(Date.parse(dateParam)) ? dateParam : src.snap?.invoice_date ?? (picked ? periodOf(picked).to : span.to);
       try {
         const bytes = await buildInvoiceXlsx(new Uint8Array(await file.arrayBuffer()), sheetBuild, {
           invoiceDate,
@@ -137,12 +146,12 @@ export async function GET(request: Request) {
 
     // each sent invoice, rebuilt from its own tag list and the terms it was sent with, plus what changed since
     const sentOut = sent.map((snap) => {
-      const b = buildInvoice(rows, { month, tz, ...billingFor(settings, snap), city, only: snap.job_ids });
+      const b = buildInvoice(rows, { month: snap.month, ...snapRange(snap), tz, ...billingFor(settings, snap), city, only: snap.job_ids });
       const diff = diffSnapshot(snap.job_ids, b.ids);
       const changed = snap.total_cents !== b.tot.cents || snap.billed_min !== b.tot.billed || snap.actual_min !== b.tot.actual;
       return { snapshot: snap, build: b, dropped: diff.dropped, changed };
     });
-    const working = buildInvoice(unbilledRows, { month, tz, ...bill, city });
+    const working = buildInvoice(unbilledRows, { month, ...period, tz, ...bill, city });
     const months = monthTable(rows, invoices, tz, city);
     // tags still to invoice this month, per city (for the Helena / Bozeman switch)
     const counts = Object.fromEntries(CITIES.map((c) => [c, unbilledBy(c)])) as Record<City, number>;
@@ -150,6 +159,8 @@ export async function GET(request: Request) {
     return NextResponse.json(
       {
         month,
+        from: range?.from ?? null,
+        to: range?.to ?? null,
         city,
         currentMonth,
         settings,
@@ -216,8 +227,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  const month = body.month;
-  if (!isMonth(month)) return fail("Bad month (use YYYY-MM).", 400);
+  const parsed = parsePeriod({ month: body.month, from: body.from, to: body.to }, "");
+  if (!parsed.ok) return fail(parsed.error, 400);
+  if (!parsed.range && !isMonth(body.month)) return fail("Bad month (use YYYY-MM).", 400);
+  const { month, range } = parsed;
+  const period = range ? { from: range.from, to: range.to } : {};
   const city = body.city;
   if (!isCity(city)) return fail("Choose Helena or Bozeman.", 400);
   const wanted = Array.isArray(body.ids) ? [...new Set((body.ids as unknown[]).map(Number).filter((n) => Number.isInteger(n) && n > 0))] : [];
@@ -226,7 +240,7 @@ export async function POST(request: Request) {
   try {
     const [settings, rows, invoices] = await Promise.all([loadSettings(db), loadFinished(db), loadInvoices(db)]);
     const tz = settings.tz;
-    if (month > localMonth(new Date().toISOString(), tz)) return fail("That month hasn't happened yet.", 400);
+    if (range ? range.from > localDate(new Date().toISOString(), tz) : month > localMonth(new Date().toISOString(), tz)) return fail(range ? "That date range hasn't started yet." : "That month hasn't happened yet.", 400);
 
     const bill = billingFor(settings, null);
     if (bill.rateCents <= 0) return fail("Set your hourly rate in Billing settings before marking tags invoiced.", 400);
@@ -234,25 +248,29 @@ export async function POST(request: Request) {
     // only tags that are finished that month, in that city and on no sent invoice yet can go on a new one
     const billedIds = new Set(invoices.flatMap((i) => i.job_ids));
     const open = new Set(rows.filter((r) => !billedIds.has(r.id)).map((r) => r.id));
-    const eligible = new Set(buildInvoice(rows.filter((r) => open.has(r.id)), { month, tz, ...bill, city }).ids);
+    const eligible = new Set(buildInvoice(rows.filter((r) => open.has(r.id)), { month, ...period, tz, ...bill, city }).ids);
     const bad = wanted.filter((id) => !eligible.has(id));
     if (bad.length > 0) {
       return fail(
-        `Job ${bad.map((n) => "#" + n).join(", ")} can't go on this ${CITY_NAMES[city]} invoice (already invoiced, or not a finished ${month} tag in this city). Reload the page.`,
+        `Job ${bad.map((n) => "#" + n).join(", ")} can't go on this ${CITY_NAMES[city]} invoice (already invoiced, or not a finished tag in this city for ${range ? `${range.from} to ${range.to}` : month}). Reload the page.`,
         409,
       );
     }
-    const build = buildInvoice(rows, { month, tz, ...bill, city, only: wanted });
+    const build = buildInvoice(rows, { month, ...period, tz, ...bill, city, only: wanted });
 
     const dateRaw = typeof body.invoice_date === "string" ? body.invoice_date.trim() : "";
     if (dateRaw !== "" && !(/^\d{4}-\d{2}-\d{2}$/.test(dateRaw) && !Number.isNaN(Date.parse(dateRaw)))) return fail("Bad invoice date.", 400);
-    const nthSame = invoices.filter((i) => i.city === city && i.month === month).length + 1;
-    const invoiceNo = clean(typeof body.invoice_no === "string" ? body.invoice_no : "", 40) ?? defaultInvoiceNo(month, city, nthSame);
+    const nthSame = invoices.filter((i) => i.city === city && i.month === month && !i.date_from).length + 1;
+    const invoiceNo =
+      clean(typeof body.invoice_no === "string" ? body.invoice_no : "", 40) ??
+      (range ? rangeInvoiceNo(city, range.from, range.to, invoices.map((i) => i.invoice_no)) : defaultInvoiceNo(month, city, nthSame));
     if (invoices.some((i) => i.invoice_no === invoiceNo)) return fail(`Invoice number ${invoiceNo} is already used. Pick another.`, 409);
 
     const { error } = await db.from("graffiti_invoices").insert({
       city,
       month,
+      date_from: range ? range.from : null,
+      date_to: range ? range.to : null,
       invoice_no: invoiceNo,
       invoice_date: dateRaw || localDate(new Date().toISOString(), tz),
       invoiced_at: new Date().toISOString(),

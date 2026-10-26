@@ -68,7 +68,7 @@ export function toJob(row: Record<string, unknown>, who: Pick<JobWho, "userId" |
 // ---------- Invoicing ----------
 
 export const JOB_SNAPSHOT_COLS =
-  "id, jtype, city, month, invoice_no, invoice_date, invoiced_at, jobs, actual_min, billed_min, total_cents, rate_cents, min_minutes, round_to, job_ids";
+  "id, jtype, city, month, invoice_no, invoice_date, invoiced_at, jobs, actual_min, billed_min, total_cents, rate_cents, min_minutes, round_to, job_ids, date_from, date_to";
 const JOB_INVOICE_COLS =
   "id, title, wo_number, city, address, lat, lng, notes, description, bill_mode, price_cents, materials, before_photo, after_photo, started_at, finished_at, done_at, duration_min, done_by_name, created_by_name";
 
@@ -126,6 +126,8 @@ export async function loadJobInvoices(db: Db, type: JobType): Promise<InvoiceSna
     id: Number(i.id),
     city: isCity(i.city) ? i.city : "bozeman",
     job_ids: (i.job_ids ?? []).map(Number),
+    date_from: i.date_from ?? null,
+    date_to: i.date_to ?? null,
   }));
 }
 
