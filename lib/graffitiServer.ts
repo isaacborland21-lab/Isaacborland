@@ -9,6 +9,7 @@ import {
   InvoiceRow,
   InvoiceSnapshot,
   MAX_PHOTO_BYTES,
+  isCity,
   mergeSettings,
 } from "@/lib/graffiti";
 
@@ -22,9 +23,9 @@ export const TEMPLATE_PATH = "templates/invoice-template.xlsx";
 export const INCIDENT_COLS =
   "id, status, lat, lng, address, gtype, gtype_other, description, notes, before_photo, after_photo, reported_at, scheduled_for, started_at, finished_at, removed_at, duration_min, report_photo, reported_by_name, urgent, claimed_by, claimed_by_name, surface, chemical, removed_by_name, created_by";
 export const INVOICE_ROW_COLS =
-  "id, gtype, gtype_other, address, notes, description, lat, lng, before_photo, after_photo, started_at, finished_at, removed_at, duration_min, surface, chemical, removed_by_name, claimed_by_name, reported_by_name, created_by";
+  "id, gtype, gtype_other, city, address, notes, description, lat, lng, before_photo, after_photo, started_at, finished_at, removed_at, duration_min, surface, chemical, removed_by_name, claimed_by_name, reported_by_name, created_by";
 export const SNAPSHOT_COLS =
-  "month, invoice_no, invoice_date, invoiced_at, jobs, actual_min, billed_min, total_cents, rate_cents, min_minutes, round_to, job_ids";
+  "id, city, month, invoice_no, invoice_date, invoiced_at, jobs, actual_min, billed_min, total_cents, rate_cents, min_minutes, round_to, job_ids";
 
 export const fail = (error: string, status: number) => NextResponse.json({ error }, { status });
 
@@ -201,10 +202,12 @@ export async function loadFinished(db: Db): Promise<InvoiceRow[]> {
 }
 
 export async function loadInvoices(db: Db): Promise<InvoiceSnapshot[]> {
-  const { data, error } = await db.from("graffiti_invoices").select(SNAPSHOT_COLS).order("month", { ascending: false });
+  const { data, error } = await db.from("graffiti_invoices").select(SNAPSHOT_COLS).order("month", { ascending: false }).order("id", { ascending: true });
   if (error) throw new Error(error.message);
   return ((data ?? []) as unknown as InvoiceSnapshot[]).map((i) => ({
     ...i,
+    id: Number(i.id),
+    city: isCity(i.city) ? i.city : "bozeman",
     job_ids: (i.job_ids ?? []).map(Number),
   }));
 }

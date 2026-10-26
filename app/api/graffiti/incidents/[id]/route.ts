@@ -122,7 +122,7 @@ export async function DELETE(_request: Request, { params }: Ctx) {
 
   const invoices = await loadInvoices(db);
   const sent = invoices.find((i) => i.job_ids.includes(id));
-  if (sent) return fail(`This tag is on the ${sent.month} invoice that was marked as sent. Undo "invoiced" for that month first.`, 409);
+  if (sent) return fail(`This tag is on invoice ${sent.invoice_no} (${sent.month}), which was marked as sent. Undo that invoice first.`, 409);
 
   const { error } = await db.from("graffiti_incidents").delete().eq("id", id);
   if (error) return fail(error.message, 500);
