@@ -2,7 +2,9 @@ import { auth, clerkClient } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { canEditTab, canInvoice, PublicMetadata } from "@/lib/supabaseAdmin";
 import { Job, JOB_TYPES, JobType, Material } from "@/lib/jobs";
-import { displayName, fail } from "@/lib/graffitiServer";
+import { Db, displayName, fail, fetchAll, isResponse, loadSettings } from "@/lib/graffitiServer";
+import { BillingSettings, InvoiceSnapshot, isCity } from "@/lib/graffiti";
+import { JobInvoiceRow, JobSettings, mergeJobSettings } from "@/lib/jobInvoice";
 
 // Server-only helpers for the job API routes (work orders / lawn care / other jobs). Never import from a client component.
 // Photos, names, JSON parsing and the fail() helper are shared with the graffiti tracker (lib/graffitiServer.ts).
@@ -61,4 +63,74 @@ export function toJob(row: Record<string, unknown>, who: Pick<JobWho, "userId" |
     job.materials = [];
   }
   return job;
+}
+
+// ---------- Invoicing ----------
+
+export const JOB_SNAPSHOT_COLS =
+  "id, jtype, city, month, invoice_no, invoice_date, invoiced_at, jobs, actual_min, billed_min, total_cents, rate_cents, min_minutes, round_to, job_ids";
+const JOB_INVOICE_COLS =
+  "id, title, wo_number, city, address, lat, lng, notes, description, bill_mode, price_cents, materials, before_photo, after_photo, started_at, finished_at, done_at, duration_min, done_by_name, created_by_name";
+
+/** The owner, or a crew account with this job tab AND the invoice switch. Settings and "undo" stay owner-only (check who.owner). */
+export async function requireJobInvoice(type: JobType): Promise<JobWho | NextResponse> {
+  const who = await requireJobs(type);
+  if (isResponse(who)) return who;
+  if (!who.canBill) return fail("Not permitted to use the invoice.", 403);
+  return who;
+}
+
+/** Shared business details (name, address, terms, time zone) plus this job type's own rate / minimum / Bill to / PO. */
+export async function loadJobSettings(db: Db, type: JobType): Promise<{ shared: BillingSettings; job: JobSettings }> {
+  const shared = await loadSettings(db);
+  const { data, error } = await db.from("graffiti_settings").select("k, v").like("k", `${type}.%`);
+  if (error) throw new Error(error.message);
+  return { shared, job: mergeJobSettings((data ?? []) as { k: string; v: string | null }[], type) };
+}
+
+/** Finished jobs of one type, each with `done_by`: who finished it, else who logged it. */
+export async function loadDoneJobs(db: Db, type: JobType): Promise<JobInvoiceRow[]> {
+  type Raw = Omit<JobInvoiceRow, "done_by"> & { done_by_name: string | null; created_by_name: string | null };
+  const raw = await fetchAll<Raw>((a, b) =>
+    db
+      .from("jobs")
+      .select(JOB_INVOICE_COLS)
+      .eq("jtype", type)
+      .not("done_at", "is", null)
+      .order("done_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(a, b) as unknown as PromiseLike<{ data: Raw[] | null; error: { message: string } | null }>,
+  );
+  return raw.map((r) => {
+    const { done_by_name, created_by_name, ...row } = r;
+    return {
+      ...row,
+      lat: row.lat === null || row.lat === undefined ? null : Number(row.lat),
+      lng: row.lng === null || row.lng === undefined ? null : Number(row.lng),
+      materials: cleanMaterials((row as { materials?: unknown }).materials),
+      done_by: done_by_name || created_by_name || null,
+    };
+  });
+}
+
+export async function loadJobInvoices(db: Db, type: JobType): Promise<InvoiceSnapshot[]> {
+  const { data, error } = await db
+    .from("job_invoices")
+    .select(JOB_SNAPSHOT_COLS)
+    .eq("jtype", type)
+    .order("month", { ascending: false })
+    .order("id", { ascending: true });
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as unknown as InvoiceSnapshot[]).map((i) => ({
+    ...i,
+    id: Number(i.id),
+    city: isCity(i.city) ? i.city : "bozeman",
+    job_ids: (i.job_ids ?? []).map(Number),
+  }));
+}
+
+/** The sent invoice a job is on, if any (a job on a sent invoice can't be deleted or moved to the other city). */
+export async function sentInvoiceFor(db: Db, type: JobType, id: number): Promise<InvoiceSnapshot | null> {
+  const invoices = await loadJobInvoices(db, type);
+  return invoices.find((i) => i.job_ids.includes(id)) ?? null;
 }
