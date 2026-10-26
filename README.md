@@ -60,6 +60,23 @@ from the main site; an account that has a job tab is not sent there.
 - **One more SQL step for invoices:** re-run `supabase/jobs.sql` (it only adds the `job_invoices` table).
 - Existing installs: nothing to re-run for graffiti; just add `supabase/jobs.sql`.
 
+## Patrolling and coverage (graffiti)
+
+Crews who drive around looking for graffiti tap **Start patrolling** at the top of the graffiti tracker (crew page or main
+site). While it's on, the phone records a point about every 80 m driven and keeps the screen awake (screen wake lock), so
+the browser keeps getting GPS; nothing is recorded while it's off. Points queue on the phone and upload every 30 seconds,
+so dead zones lose nothing; if the page is closed mid-patrol it offers **Resume**. It stops itself after 10 hours.
+Limits of a web page: recording pauses if the phone locks or the crew switch apps (phones without wake lock support
+need Auto-Lock set to Never), and it uses battery, so keep the phone on a charger.
+
+- **Crew map:** a time filter (Today / 7 / 30 days), **Color: who did it**, a hover/tap label with who and when, and
+  today's patrol routes drawn per crew so crews can see where others have already been.
+- **Coverage** (owner only, Graffiti → Coverage →): Bozeman/Helena split into ~300 m blocks, each colored by days since a
+  crew drove through it while patrolling or logged a tag there (grey = never). **Check next** lists blocks that get
+  tagged but haven't been covered lately (tags in the last year x days since covered). Pick a day to see routes driven.
+- Data: `supabase/patrol.sql` (`patrol_points` raw tracks, deleted after 90 days; `coverage_cells` last visit per block).
+  Tell crews what's recorded and when before turning it on.
+
 ## Live client map (graffiti)
 
 Graffiti → Invoice → **Live client map links** (owner only). Create a private link for Bozeman or Helena and send it to
