@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { CITIES, CITY_NAMES, City, clean, diffSnapshot, isCity, isMonth, localDate, localMonth, unbilledMonths } from "@/lib/graffiti";
+import { CITIES, CITY_NAMES, City, clean, diffSnapshot, isCity, isMonth, localDate, localMonth, parsePeriod, periodOf, rangesOverlap, snapRange, unbilledMonths } from "@/lib/graffiti";
 import { JobType, isJobType } from "@/lib/jobs";
-import { buildJobCsv, buildJobInvoice, jobBilling, jobInvoiceNo, jobMonthTable } from "@/lib/jobInvoice";
+import { buildJobCsv, buildJobInvoice, jobBilling, jobInvoiceNo, jobMonthTable, jobRangeInvoiceNo } from "@/lib/jobInvoice";
 import { fail, isResponse } from "@/lib/graffitiServer";
 import { loadDoneJobs, loadJobInvoices, loadJobSettings, requireJobInvoice } from "@/lib/jobsServer";
 
@@ -33,21 +33,27 @@ export async function GET(request: Request, { params }: { params: { type: string
     const [{ shared, job: S }, rows, invoices] = await Promise.all([loadJobSettings(db, type), loadDoneJobs(db, type), loadJobInvoices(db, type)]);
     const tz = shared.tz;
     const currentMonth = localMonth(new Date().toISOString(), tz);
-    const wanted = url.searchParams.get("month");
-    if (wanted !== null && !isMonth(wanted)) return fail("Bad month (use YYYY-MM).", 400);
-    const month = wanted ?? currentMonth;
+    // a whole month (default), or a date range with ?from=YYYY-MM-DD&to=YYYY-MM-DD (both days included)
+    const per = parsePeriod({ month: url.searchParams.get("month"), from: url.searchParams.get("from"), to: url.searchParams.get("to") }, currentMonth);
+    if (!per.ok) return fail(per.error, 400);
+    const { month, range } = per;
+    const span = periodOf({ month, date_from: range?.from, date_to: range?.to });
+    const period = range ? { from: range.from, to: range.to } : {};
     const cityParam = url.searchParams.get("city");
     if (cityParam !== null && !isCity(cityParam)) return fail("Bad city.", 400);
 
     const billedIds = new Set(invoices.flatMap((i) => i.job_ids));
     const unbilledRows = rows.filter((r) => !billedIds.has(r.id));
     const bill = jobBilling(S, null);
-    const unbilledBy = (c: City) => buildJobInvoice(unbilledRows, { month, tz, ...bill, city: c }).tot.jobs;
+    const unbilledBy = (c: City) => buildJobInvoice(unbilledRows, { month, ...period, tz, ...bill, city: c }).tot.jobs;
     // no city asked for: open the one with the most jobs still to invoice this month
     const city: City = cityParam ?? (unbilledBy("helena") > unbilledBy("bozeman") ? "helena" : "bozeman");
 
-    const sent = invoices.filter((i) => i.city === city && i.month === month);
-    const nextNo = jobInvoiceNo(type, month, city, sent.length + 1);
+    // sent invoices that cover any of the days on screen (a month invoice, or a range invoice that overlaps)
+    const sent = invoices.filter((i) => i.city === city && rangesOverlap(periodOf(i), span));
+    const nextNo = range
+      ? jobRangeInvoiceNo(type, city, range.from, range.to, invoices.map((i) => i.invoice_no))
+      : jobInvoiceNo(type, month, city, invoices.filter((i) => i.city === city && i.month === month && !i.date_from).length + 1);
     const ids = idList(url.searchParams.get("ids"));
     const sentId = url.searchParams.get("invoice");
     const picked = sentId !== null ? sent.find((i) => String(i.id) === sentId) : undefined;
@@ -57,12 +63,14 @@ export async function GET(request: Request, { params }: { params: { type: string
       const src = picked
         ? { no: picked.invoice_no, terms: jobBilling(S, picked), only: picked.job_ids, rows }
         : { no: clean(url.searchParams.get("inv"), 40) ?? nextNo, terms: bill, only: ids ?? undefined, rows: unbilledRows };
-      const build = buildJobInvoice(src.rows, { month, tz, ...src.terms, city, only: src.only });
+      // a sent invoice is always rebuilt over its own days; the working invoice over the days on screen
+      const own = picked ? { month: picked.month, ...snapRange(picked) } : { month, ...period };
+      const build = buildJobInvoice(src.rows, { ...own, tz, ...src.terms, city, only: src.only });
       const csv = buildJobCsv(build, { invNo: src.no, tz, rateCents: src.terms.rateCents });
       return new Response(csv, {
         headers: {
           "Content-Type": "text/csv; charset=utf-8",
-          "Content-Disposition": `attachment; filename="${type}-invoice-${city}-${month}${picked ? `-${picked.id}` : ""}.csv"`,
+          "Content-Disposition": `attachment; filename="${type}-invoice-${city}-${range ? `${range.from}_${range.to}` : month}${picked ? `-${picked.id}` : ""}.csv"`,
           "Cache-Control": "no-store",
         },
       });
@@ -70,12 +78,12 @@ export async function GET(request: Request, { params }: { params: { type: string
 
     // each sent invoice, rebuilt from its own job list and the terms it was sent with, plus what changed since
     const sentOut = sent.map((snap) => {
-      const b = buildJobInvoice(rows, { month, tz, ...jobBilling(S, snap), city, only: snap.job_ids });
+      const b = buildJobInvoice(rows, { month: snap.month, ...snapRange(snap), tz, ...jobBilling(S, snap), city, only: snap.job_ids });
       const diff = diffSnapshot(snap.job_ids, b.ids);
       const changed = snap.total_cents !== b.tot.cents || snap.billed_min !== b.tot.billed || snap.actual_min !== b.tot.actual;
       return { snapshot: snap, build: b, dropped: diff.dropped, changed };
     });
-    const working = buildJobInvoice(unbilledRows, { month, tz, ...bill, city });
+    const working = buildJobInvoice(unbilledRows, { month, ...period, tz, ...bill, city });
     const months = jobMonthTable(rows, invoices, tz, city);
     const counts = Object.fromEntries(CITIES.map((c) => [c, unbilledBy(c)])) as Record<City, number>;
 
@@ -83,6 +91,8 @@ export async function GET(request: Request, { params }: { params: { type: string
       {
         type,
         month,
+        from: range?.from ?? null,
+        to: range?.to ?? null,
         city,
         currentMonth,
         shared,
@@ -150,8 +160,11 @@ export async function POST(request: Request, { params }: { params: { type: strin
     return NextResponse.json({ ok: true });
   }
 
-  const month = body.month;
-  if (!isMonth(month)) return fail("Bad month (use YYYY-MM).", 400);
+  const parsed = parsePeriod({ month: body.month, from: body.from, to: body.to }, "");
+  if (!parsed.ok) return fail(parsed.error, 400);
+  if (!parsed.range && !isMonth(body.month)) return fail("Bad month (use YYYY-MM).", 400);
+  const { month, range } = parsed;
+  const period = range ? { from: range.from, to: range.to } : {};
   const city = body.city;
   if (!isCity(city)) return fail("Choose Helena or Bozeman.", 400);
   const wanted = Array.isArray(body.ids) ? [...new Set((body.ids as unknown[]).map(Number).filter((n) => Number.isInteger(n) && n > 0))] : [];
@@ -160,22 +173,22 @@ export async function POST(request: Request, { params }: { params: { type: strin
   try {
     const [{ shared, job: S }, rows, invoices] = await Promise.all([loadJobSettings(db, type), loadDoneJobs(db, type), loadJobInvoices(db, type)]);
     const tz = shared.tz;
-    if (month > localMonth(new Date().toISOString(), tz)) return fail("That month hasn't happened yet.", 400);
+    if (range ? range.from > localDate(new Date().toISOString(), tz) : month > localMonth(new Date().toISOString(), tz)) return fail(range ? "That date range hasn't started yet." : "That month hasn't happened yet.", 400);
 
     const bill = jobBilling(S, null);
 
     // only jobs done that month, in that city and on no sent invoice yet can go on a new one
     const billedIds = new Set(invoices.flatMap((i) => i.job_ids));
     const open = rows.filter((r) => !billedIds.has(r.id));
-    const eligible = new Set(buildJobInvoice(open, { month, tz, ...bill, city }).ids);
+    const eligible = new Set(buildJobInvoice(open, { month, ...period, tz, ...bill, city }).ids);
     const bad = wanted.filter((id) => !eligible.has(id));
     if (bad.length > 0) {
       return fail(
-        `Job ${bad.map((n) => "#" + n).join(", ")} can't go on this ${CITY_NAMES[city]} invoice (already invoiced, or not a finished ${month} job in this city). Reload the page.`,
+        `Job ${bad.map((n) => "#" + n).join(", ")} can't go on this ${CITY_NAMES[city]} invoice (already invoiced, or not a finished job in this city for ${range ? `${range.from} to ${range.to}` : month}). Reload the page.`,
         409,
       );
     }
-    const build = buildJobInvoice(rows, { month, tz, ...bill, city, only: wanted });
+    const build = buildJobInvoice(rows, { month, ...period, tz, ...bill, city, only: wanted });
 
     // hourly jobs need the rate; flat jobs need their price
     if (build.lines.some((l) => l.bill_mode !== "flat") && bill.rateCents <= 0) {
@@ -187,14 +200,18 @@ export async function POST(request: Request, { params }: { params: { type: strin
 
     const dateRaw = typeof body.invoice_date === "string" ? body.invoice_date.trim() : "";
     if (dateRaw !== "" && !(/^\d{4}-\d{2}-\d{2}$/.test(dateRaw) && !Number.isNaN(Date.parse(dateRaw)))) return fail("Bad invoice date.", 400);
-    const nthSame = invoices.filter((i) => i.city === city && i.month === month).length + 1;
-    const invoiceNo = clean(typeof body.invoice_no === "string" ? body.invoice_no : "", 40) ?? jobInvoiceNo(type, month, city, nthSame);
+    const nthSame = invoices.filter((i) => i.city === city && i.month === month && !i.date_from).length + 1;
+    const invoiceNo =
+      clean(typeof body.invoice_no === "string" ? body.invoice_no : "", 40) ??
+      (range ? jobRangeInvoiceNo(type, city, range.from, range.to, invoices.map((i) => i.invoice_no)) : jobInvoiceNo(type, month, city, nthSame));
     if (invoices.some((i) => i.invoice_no === invoiceNo)) return fail(`Invoice number ${invoiceNo} is already used. Pick another.`, 409);
 
     const { error } = await db.from("job_invoices").insert({
       jtype: type,
       city,
       month,
+      date_from: range ? range.from : null,
+      date_to: range ? range.to : null,
       invoice_no: invoiceNo,
       invoice_date: dateRaw || localDate(new Date().toISOString(), tz),
       invoiced_at: new Date().toISOString(),

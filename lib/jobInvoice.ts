@@ -89,6 +89,15 @@ const CODE: Record<JobType, string> = { workorders: "WO", lawn: "LAWN", otherjob
 export const jobInvoiceNo = (type: JobType, month: string, city: City, nth = 1) =>
   `INV-${month.replace("-", "")}-${CODE[type]}-${city.slice(0, 3).toUpperCase()}${nth > 1 ? `-${nth}` : ""}`;
 
+/** INV-20261015-20261105-WO-HEL for a date range (a -2, -3... is added if that number is taken). */
+export function jobRangeInvoiceNo(type: JobType, city: City, from: string, to: string, taken: string[] = []): string {
+  const base = `INV-${from.replace(/-/g, "")}-${to.replace(/-/g, "")}-${CODE[type]}-${city.slice(0, 3).toUpperCase()}`;
+  let n = 1;
+  let no = base;
+  while (taken.includes(no)) no = `${base}-${++n}`;
+  return no;
+}
+
 // ---------- Building an invoice ----------
 
 /** A finished job as the invoice needs it. */
@@ -180,11 +189,20 @@ export function summarizeJobs(lines: JobLine[]): Pick<JobBuild, "people" | "byMo
  */
 export function buildJobInvoice(
   rows: JobInvoiceRow[],
-  o: { month: string; tz: string; rateCents: number; minMin: number; roundTo: number; city?: City; only?: number[] },
+  o: { month: string; tz: string; rateCents: number; minMin: number; roundTo: number; city?: City; only?: number[]; from?: string; to?: string },
 ): JobBuild {
   const only = o.only ? new Set(o.only) : null;
+  const inRange = o.from && o.to ? { from: o.from, to: o.to } : null;
   const inMonth = rows
-    .filter((r) => r.done_at && localMonth(r.done_at, o.tz) === o.month)
+    .filter((r) => {
+      if (!r.done_at) return false;
+      // a date range (local days, both ends included) when one is given, otherwise the whole month
+      if (inRange) {
+        const d = localDate(r.done_at, o.tz);
+        return d >= inRange.from && d <= inRange.to;
+      }
+      return localMonth(r.done_at, o.tz) === o.month;
+    })
     .filter((r) => !o.city || r.city === o.city)
     .filter((r) => !only || only.has(r.id))
     .sort((a, b) => Date.parse(a.done_at) - Date.parse(b.done_at) || a.id - b.id);

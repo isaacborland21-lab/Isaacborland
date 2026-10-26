@@ -25,7 +25,7 @@ export const INCIDENT_COLS =
 export const INVOICE_ROW_COLS =
   "id, gtype, gtype_other, city, address, notes, description, lat, lng, before_photo, after_photo, started_at, finished_at, removed_at, duration_min, surface, chemical, removed_by_name, claimed_by_name, reported_by_name, created_by";
 export const SNAPSHOT_COLS =
-  "id, city, month, invoice_no, invoice_date, invoiced_at, jobs, actual_min, billed_min, total_cents, rate_cents, min_minutes, round_to, job_ids";
+  "id, city, month, invoice_no, invoice_date, invoiced_at, jobs, actual_min, billed_min, total_cents, rate_cents, min_minutes, round_to, job_ids, date_from, date_to";
 
 export const fail = (error: string, status: number) => NextResponse.json({ error }, { status });
 
@@ -209,6 +209,8 @@ export async function loadInvoices(db: Db): Promise<InvoiceSnapshot[]> {
     id: Number(i.id),
     city: isCity(i.city) ? i.city : "bozeman",
     job_ids: (i.job_ids ?? []).map(Number),
+    date_from: i.date_from ?? null,
+    date_to: i.date_to ?? null,
   }));
 }
 

@@ -491,6 +491,82 @@ export function shiftMonth(month: string, delta: number): string {
   return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, "0")}`;
 }
 
+// ---------- Invoice periods: a whole month, or any date range ----------
+
+/** A real calendar date written YYYY-MM-DD. */
+export const isDate = (v: unknown): v is string => {
+  if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  const [y, m, d] = v.split("-").map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
+};
+const dayNumber = (ymd: string) => {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return Math.round(Date.UTC(y, m - 1, d) / 86_400_000);
+};
+export const MAX_RANGE_DAYS = 366;
+/** First and last day of a YYYY-MM month. */
+export const monthBounds = (month: string) => {
+  const [y, m] = month.split("-").map(Number);
+  return { from: `${month}-01`, to: `${month}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}` };
+};
+export type DateRange = { from: string; to: string };
+/** Checks a from/to pair (both inclusive, local days). */
+export function checkRange(from: unknown, to: unknown): { ok: true; range: DateRange } | { ok: false; error: string } {
+  if (!isDate(from) || !isDate(to)) return { ok: false, error: "Pick a valid start and end date." };
+  if (from > to) return { ok: false, error: "The start date is after the end date." };
+  if (dayNumber(to) - dayNumber(from) + 1 > MAX_RANGE_DAYS) return { ok: false, error: `A date range can be at most ${MAX_RANGE_DAYS} days.` };
+  return { ok: true, range: { from, to } };
+}
+/** The days an invoice covers: its own date range, or its whole month. */
+export function periodOf(p: { month: string; date_from?: string | null; date_to?: string | null }): DateRange {
+  return p.date_from && p.date_to ? { from: p.date_from, to: p.date_to } : monthBounds(p.month);
+}
+/** The range of a sent invoice, or {} for a plain month invoice (so it can be spread into buildInvoice options). */
+export const snapRange = (p: { date_from?: string | null; date_to?: string | null }): { from?: string; to?: string } =>
+  p.date_from && p.date_to ? { from: p.date_from, to: p.date_to } : {};
+/**
+ * Reads the period a request asks for: a date range (from + to together) or a month (default: the current one).
+ * `month` is the range's starting month for a range, so every invoice still belongs to a month.
+ */
+export function parsePeriod(
+  q: { month?: unknown; from?: unknown; to?: unknown },
+  currentMonth: string,
+): { ok: true; month: string; range: DateRange | null } | { ok: false; error: string } {
+  const has = (v: unknown) => v !== null && v !== undefined && v !== "";
+  if (has(q.from) || has(q.to)) {
+    if (!has(q.from) || !has(q.to)) return { ok: false, error: "Give both a start and an end date." };
+    const c = checkRange(q.from, q.to);
+    if (!c.ok) return c;
+    return { ok: true, month: c.range.from.slice(0, 7), range: c.range };
+  }
+  if (!has(q.month)) return { ok: true, month: currentMonth, range: null };
+  if (!isMonth(q.month)) return { ok: false, error: "Bad month (use YYYY-MM)." };
+  return { ok: true, month: q.month, range: null };
+}
+export const rangesOverlap = (a: DateRange, b: DateRange) => a.from <= b.to && b.from <= a.to;
+const compact = (ymd: string) => ymd.replace(/-/g, "");
+/** "October 2026" for a month, or "Oct 15 - Nov 5, 2026" for a range. */
+export function periodLabel(month: string, from?: string | null, to?: string | null, long = true): string {
+  if (!from || !to) return monthLabel(month, long);
+  const at = (ymd: string) => {
+    const [y, m, d] = ymd.split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, d));
+  };
+  const fmt = (d: Date, withYear: boolean) => d.toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric", ...(withYear ? { year: "numeric" } : {}) });
+  const f = at(from);
+  const t = at(to);
+  return `${fmt(f, f.getUTCFullYear() !== t.getUTCFullYear())} - ${fmt(t, true)}`;
+}
+/** INV-20261015-20261105-HEL for a date range (a -2, -3... is added if that number is taken). */
+export function rangeInvoiceNo(city: City, from: string, to: string, taken: string[] = []): string {
+  const base = `INV-${compact(from)}-${compact(to)}-${city.slice(0, 3).toUpperCase()}`;
+  let n = 1;
+  let no = base;
+  while (taken.includes(no)) no = `${base}-${++n}`;
+  return no;
+}
+
 // ---------- Money ----------
 
 export const money = (cents: number) =>
@@ -696,16 +772,25 @@ export function summarize(lines: InvoiceLine[]): Pick<InvoiceBuild, "people" | "
 }
 
 /**
- * Completed jobs finished in `month` (local days in `tz`), with billing worked out.
+ * Completed jobs finished in `month` (local days in `tz`), or between `from` and `to` when a date range is given, with billing worked out.
  * `city` keeps one city's tags; `only` keeps just those job ids (the tags ticked for this invoice).
  */
 export function buildInvoice(
   rows: InvoiceRow[],
-  o: { month: string; tz: string; rateCents: number; minMin: number; roundTo: number; city?: City; only?: number[] },
+  o: { month: string; tz: string; rateCents: number; minMin: number; roundTo: number; city?: City; only?: number[]; from?: string; to?: string },
 ): InvoiceBuild {
   const only = o.only ? new Set(o.only) : null;
+  const inRange = o.from && o.to ? { from: o.from, to: o.to } : null;
   const inMonth = rows
-    .filter((r) => r.removed_at && localMonth(r.removed_at, o.tz) === o.month)
+    .filter((r) => {
+      if (!r.removed_at) return false;
+      // a date range (local days, both ends included) when one is given, otherwise the whole month
+      if (inRange) {
+        const d = localDate(r.removed_at, o.tz);
+        return d >= inRange.from && d <= inRange.to;
+      }
+      return localMonth(r.removed_at, o.tz) === o.month;
+    })
     .filter((r) => !o.city || cityOf(r) === o.city)
     .filter((r) => !only || only.has(r.id))
     .sort((a, b) => Date.parse(a.removed_at) - Date.parse(b.removed_at) || a.id - b.id);
@@ -741,6 +826,9 @@ export type InvoiceSnapshot = {
   min_minutes: number;
   round_to: number;
   job_ids: number[];
+  /** Set when the invoice covers a date range instead of the whole month (`month` is then the month of date_from). */
+  date_from?: string | null;
+  date_to?: string | null;
 };
 
 /** Tags finished in an invoiced month after it was marked (added) or that no longer qualify (dropped). */

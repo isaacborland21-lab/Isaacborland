@@ -116,3 +116,7 @@ end $$;
 create index if not exists graffiti_invoices_city_month on public.graffiti_invoices (city, month);
 
 -- Work orders / lawn care / other jobs live in their own table: see supabase/jobs.sql.
+
+-- Invoices for a date range, not just a whole month (safe to re-run). Null = the whole month.
+alter table public.graffiti_invoices add column if not exists date_from date;
+alter table public.graffiti_invoices add column if not exists date_to date;
