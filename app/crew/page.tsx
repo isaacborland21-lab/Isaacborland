@@ -1,12 +1,16 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { SignIn, SignOutButton, UserButton, useUser } from "@clerk/nextjs";
 import AliveBackground from "../AliveBackground";
 import GraffitiTab from "../graffiti/GraffitiTab";
+import JobsTab from "../jobs/JobsTab";
+import gstyles from "../graffiti/graffiti.module.css";
+import { JOB_TYPE_LABEL, JobType } from "@/lib/jobs";
 import type { PublicMetadata } from "@/lib/supabaseAdmin";
 
-// Crew entry point: sign in here and the graffiti tracker is the ONLY thing on the page (no other tabs).
+// Crew entry point: sign in here and only the trackers this account was given are on the page (graffiti, work orders,
+// lawn care, other jobs) — no hub tabs.
 // Showing or hiding is only cosmetic. The real permission check is in the /api/graffiti routes.
 
 const mono = "'IBM Plex Mono', monospace";
@@ -41,8 +45,17 @@ const wrap = {
   zIndex: 1,
 };
 
+type CrewTab = "graffiti" | JobType;
+const CREW_TABS: { key: CrewTab; label: string }[] = [
+  { key: "graffiti", label: "Graffiti" },
+  { key: "workorders", label: JOB_TYPE_LABEL.workorders },
+  { key: "lawn", label: JOB_TYPE_LABEL.lawn },
+  { key: "otherjobs", label: JOB_TYPE_LABEL.otherjobs },
+];
+
 export default function CrewPage() {
   const { user, isLoaded, isSignedIn } = useUser();
+  const [picked, setPicked] = useState<CrewTab | null>(null);
 
   // One-time flag so the main page can send a crew sign-in back here if Clerk lands it there.
   useEffect(() => {
@@ -75,7 +88,7 @@ export default function CrewPage() {
             <p style={{ fontFamily: mono, fontSize: 13, color: "var(--text-dim)", margin: "0 0 16px" }}>isaacborland.com</p>
             <h1 style={{ fontFamily: mono, fontWeight: 600, fontSize: 26, lineHeight: 1.3, margin: "0 0 12px" }}>Crew login</h1>
             <p style={{ fontFamily: sans, fontSize: 14, lineHeight: 1.6, color: "var(--text-dim)", margin: 0 }}>
-              Graffiti removal tracker. Invite-only.
+              Field trackers. Invite-only.
             </p>
           </div>
           <SignIn routing="hash" forceRedirectUrl="/crew" appearance={clerkAppearance} />
@@ -89,7 +102,9 @@ export default function CrewPage() {
 
   const meta = (user?.publicMetadata ?? {}) as PublicMetadata;
   const isOwner = meta.owner === true;
-  const allowed = isOwner || meta.tabAdmin?.graffiti === true;
+  const mine = CREW_TABS.filter((t) => isOwner || meta.tabAdmin?.[t.key] === true);
+  const allowed = mine.length > 0;
+  const current = mine.find((t) => t.key === picked)?.key ?? mine[0]?.key;
 
   if (!allowed) {
     return (
@@ -99,7 +114,7 @@ export default function CrewPage() {
           <div style={{ maxWidth: 420, width: "100%", textAlign: "center" }}>
             <h1 style={{ fontFamily: mono, fontWeight: 600, fontSize: 24, margin: "0 0 12px" }}>No crew access yet</h1>
             <p style={{ fontFamily: sans, fontSize: 14, lineHeight: 1.6, color: "var(--text-dim)", margin: "0 0 20px" }}>
-              You're signed in, but this account hasn't been given the graffiti tracker. Ask Isaac to turn it on for you.
+              You're signed in, but this account hasn't been given any of the trackers. Ask Isaac to turn them on for you.
             </p>
             <SignOutButton redirectUrl="/sign-in">
               <button
@@ -149,7 +164,19 @@ export default function CrewPage() {
           )}
         </header>
         <div className="tab-content">
-          <GraffitiTab isOwner={isOwner} canInvoice={isOwner || meta.tabAdmin?.invoice === true} />
+          {mine.length > 1 && (
+            <div className={gstyles.root}>
+              <nav className={gstyles.subnav} aria-label="Trackers" data-testid="crew-tabs">
+                {mine.map((t) => (
+                  <button key={t.key} type="button" className={current === t.key ? gstyles.on : undefined} aria-pressed={current === t.key} onClick={() => setPicked(t.key)}>
+                    {t.label}
+                  </button>
+                ))}
+              </nav>
+            </div>
+          )}
+          {current === "graffiti" && <GraffitiTab isOwner={isOwner} canInvoice={isOwner || meta.tabAdmin?.invoice === true} />}
+          {current && current !== "graffiti" && <JobsTab key={current} jtype={current} isOwner={isOwner} />}
         </div>
       </main>
     </>

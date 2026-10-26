@@ -642,3 +642,7 @@
 .pick input[type="text"] {
   margin-top: 6px;
 }
+
+/* a required plain input left blank (the job form) */
+.root input.invalid,
+.root textarea.invalid { outline: 2px solid #e5484d; outline-offset: 1px; }

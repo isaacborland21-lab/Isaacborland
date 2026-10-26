@@ -663,17 +663,19 @@ textarea:focus-visible {
     padding: 6px;
     gap: 2px;
     justify-content: space-between;
+    overflow-x: auto; /* the owner can have 11 tabs: the bar scrolls sideways instead of squeezing the labels */
+    scrollbar-width: none;
     border-radius: 24px;
     background: color-mix(in srgb, var(--surface) 80%, transparent);
     box-shadow: 0 16px 40px -10px rgba(0, 0, 0, 0.7);
   }
 
   .tab {
-    flex: 1 1 auto; /* size to the label so 8 tabs still fit without clipping */
+    flex: 1 0 auto; /* size to the label; with many tabs the bar scrolls sideways */
     min-width: 0;
     flex-direction: column;
     gap: 3px;
-    padding: 8px 2px;
+    padding: 8px 7px;
     border-radius: 18px;
     font-size: 11px;
   }
@@ -688,6 +690,10 @@ textarea:focus-visible {
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .tabs::-webkit-scrollbar {
+    display: none;
   }
 
   .tab.active {

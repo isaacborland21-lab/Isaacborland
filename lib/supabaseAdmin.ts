@@ -15,15 +15,16 @@ export function getSupabaseAdmin() {
   });
 }
 
-export const VALID_TABS = ["home", "projects", "food", "about", "contact", "graffiti"] as const;
+export const VALID_TABS = ["home", "projects", "food", "about", "contact", "graffiti", "workorders", "lawn", "otherjobs"] as const;
 export type ValidTab = (typeof VALID_TABS)[number];
 
 export function isValidTab(tab: string): tab is ValidTab {
   return (VALID_TABS as readonly string[]).includes(tab);
 }
 
-// Extra per-user switches that are not tabs. "invoice" lets someone who already has the graffiti tab
-// open the monthly invoice (view, download, mark as invoiced). Rates and the template stay owner-only.
+// Extra per-user switches that are not tabs. "invoice" lets someone who already has a graffiti / work order /
+// lawn / other-jobs tab open that tab's monthly invoice (view, download, mark as invoiced) and see its prices.
+// Rates and the template stay owner-only.
 export const EXTRA_PERMISSIONS = ["invoice"] as const;
 export type ExtraPermission = (typeof EXTRA_PERMISSIONS)[number];
 export function isValidPermission(p: string): p is ValidTab | ExtraPermission {
@@ -53,9 +54,9 @@ export function canEditTab(metadata: PublicMetadata | null | undefined, tab: Val
   return metadata.tabAdmin?.[tab] === true;
 }
 
-/** The owner, or a crew account that has the graffiti tab AND the invoice switch. */
-export function canInvoice(metadata: PublicMetadata | null | undefined): boolean {
+/** The owner, or a crew account that has the given tab (graffiti by default) AND the invoice switch. */
+export function canInvoice(metadata: PublicMetadata | null | undefined, tab: ValidTab = "graffiti"): boolean {
   if (!metadata) return false;
   if (metadata.owner === true) return true;
-  return metadata.tabAdmin?.graffiti === true && metadata.tabAdmin?.invoice === true;
+  return metadata.tabAdmin?.[tab] === true && metadata.tabAdmin?.invoice === true;
 }

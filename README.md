@@ -22,6 +22,28 @@ the homepage itself is the sign-in screen; everything else sits behind it.
 - The homepage IS the login screen (`app/[[...sign-in]]/page.tsx`). There
   is no separate marketing page in front of it.
 
+## Work orders / Lawn care / Other jobs tabs
+
+Three more field trackers that work like the graffiti one: the crew log a job on their phone,
+take a **before** photo (starts the timer) and an **after** photo (stops it). Each tab keeps its
+own list, so work orders, lawn care and other jobs never mix. Graffiti is unchanged.
+
+**One-time setup:** run `supabase/jobs.sql` in the Supabase SQL editor (creates the `jobs` table; photos go in
+the existing private `graffiti` bucket). Then Admin tab → tick **work orders**, **lawn care** and/or
+**other jobs** for each person. Someone who has only these (no hub tabs) is sent to `/crew`, which shows just
+their trackers (a small switcher when they have more than one).
+
+- A job has a **title**, optional **work order #**, a **city** (Helena or Bozeman, required), an address
+  (typed, or **Use GPS** to fill it in and pick the city), notes, and before/after photos.
+- Three ways to log: **Take before photo** (saves + starts the clock), **Log it without starting**, or
+  **Already finished** (type the minutes). Title and city are required before any photo.
+- **Billing** is per job: *Hourly*, *Flat price* or *Hours + materials* (a list of materials with amounts).
+  Only the owner, or a crew account with the **invoice (prices)** switch on that tab, can see or change
+  prices; everyone else never receives them from the server and logs everything as hourly.
+- Job invoices (monthly, per city, tick boxes, rates per job type) come in the next update. For now the
+  tabs record the work, time, photos and billing choice.
+- Existing installs: nothing to re-run for graffiti; just add `supabase/jobs.sql`.
+
 ## Graffiti tab (removal tracker + monthly invoice)
 
 Crew log each tag on their phones. Location is auto-filled from GPS, the timer
