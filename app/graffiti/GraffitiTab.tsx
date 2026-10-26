@@ -384,6 +384,7 @@ function MapView({ incidents, active, onOpen }: { incidents: Incident[]; active:
   const mapRef = useRef<any>(null);
   const layerRef = useRef<any>(null);
   const routeLayerRef = useRef<any>(null);
+  const fittedRoutes = useRef(false);
   const onOpenRef = useRef(onOpen);
   onOpenRef.current = onOpen;
   const [filter, setFilter] = useState<"open" | "" | "removed">("");
@@ -421,8 +422,19 @@ function MapView({ incidents, active, onOpen }: { incidents: Incident[]; active:
     const { shown: list, colorBy: cb, routes: r, showRoutes: sr } = latest.current;
     // today's patrol routes go underneath the pins
     if (sr && r) {
+      // a white edge under each route so it stands out on the street map
       for (const c of r.crews) {
-        for (const line of c.lines) L.polyline(line, { color: c.color, weight: 5, opacity: 0.55 }).addTo(rl);
+        for (const line of c.lines) {
+          L.polyline(line, { color: "#fff", weight: 9, opacity: 0.9, interactive: false }).addTo(rl);
+          L.polyline(line, { color: c.color, weight: 5, opacity: 0.95 }).bindTooltip(`${escHtml(c.name)} drove here today`, { sticky: true }).addTo(rl);
+        }
+      }
+      // the first time routes show up, make sure they're on screen (they may be outside the starting view)
+      const pts = r.crews.flatMap((c) => c.lines.flat());
+      if (pts.length > 0 && !fittedRoutes.current) {
+        fittedRoutes.current = true;
+        const view = map.getBounds();
+        if (pts.some((p: [number, number]) => !view.contains(p))) map.fitBounds(L.latLngBounds(pts).extend(view.getCenter()), { padding: [20, 20], maxZoom: 15 });
       }
     }
     for (const i of list) {
@@ -541,6 +553,18 @@ function MapView({ incidents, active, onOpen }: { incidents: Incident[]; active:
       </div>
       {showRoutes && routes && routes.crews.length > 0 && (
         <div className={styles.legend} data-testid="routes-legend">
+          <button
+            type="button"
+            className={styles.linkbtn}
+            data-testid="routes-zoom"
+            onClick={() => {
+              const L = (window as any).L as LeafletNS | undefined;
+              const pts = routes.crews.flatMap((c) => c.lines.flat());
+              if (L && mapRef.current && pts.length) mapRef.current.fitBounds(L.latLngBounds(pts), { padding: [20, 20], maxZoom: 16 });
+            }}
+          >
+            Show routes on map
+          </button>
           {routes.crews.map((c) => (
             <span key={c.name}>
               <i className={styles.dot} style={{ background: c.color, borderRadius: 2 }} />
@@ -1523,7 +1547,22 @@ function IncidentSheet({
         <span className={styles.lbl}>Status</span>
         <div className={styles.seg}>
           {GRAFFITI_STATUSES.map((s) => (
-            <button key={s} type="button" disabled={busy} className={`${styles.btn} ${styles.sec} ${inc.status === s ? styles.cur : ""}`} onClick={() => save({ status: s })}>
+            <button key={s} type="button" disabled={busy} className={`${styles.btn} ${styles.sec} ${inc.status === s ? styles.cur : ""}`}
+              onClick={() => {
+                if (s === inc.status) return;
+                // a finished job is only reopened on purpose (a mis-tap here used to re-time the job)
+                if (
+                  inc.status === "removed" &&
+                  !window.confirm(
+                    s === "in_progress"
+                      ? "This job is finished. Reopen it as In progress? Its recorded time stays as it is unless you take a new after photo."
+                      : `This job is finished. Move it back to ${STATUS_LABEL[s]}? This clears its start and finish times.`,
+                  )
+                )
+                  return;
+                void save({ status: s });
+              }}
+            >
               {STATUS_LABEL[s]}
             </button>
           ))}

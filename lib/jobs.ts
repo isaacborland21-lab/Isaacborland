@@ -277,7 +277,8 @@ export const touchesBilling = (fields: Fields) => BILLING_KEYS.some((k) => Objec
  *  - starting stamps started_at with the before-photo time (first start only)
  *  - finishing stamps the finish with the after-photo time and, unless minutes were typed,
  *    sets the time on site from the two photo times (a job that never started has no automatic time)
- *  - moving back to open clears the work-in-progress data; restarting a finished job drops its old time
+ *  - moving back to open clears the work-in-progress data; reopening a finished job keeps its finish time and minutes,
+ *    and marking it done again without a new after photo restores them
  */
 export function computeJobUpdate(
   row: CurrentJob,
@@ -308,23 +309,36 @@ export function computeJobUpdate(
     patch.status = status;
     if (status === "in_progress") {
       if (row.started_at === null) patch.started_at = iso(photoTime(fields.photo_at, nowMs));
-      patch.finished_at = null;
-      patch.done_at = null;
-      durationGiven = row.status === "done";
+      if (row.status === "done") {
+        // Reopening a finished job (often a mis-tap) keeps its finish time and minutes, so tapping
+        // "Done" again puts it back exactly as it was. Only a new after photo re-times it.
+        patch.done_at = null;
+      } else {
+        patch.finished_at = null;
+        patch.done_at = null;
+      }
+      durationGiven = false;
       durationVal = null;
     } else if (status === "done") {
-      let finishMs = photoTime(fields.photo_at, nowMs);
-      if (row.started_at !== null) {
-        const startMs = Date.parse(row.started_at);
-        if (!Number.isNaN(startMs)) finishMs = Math.max(finishMs, startMs);
-      }
-      if (row.done_at === null) patch.done_at = iso(finishMs);
-      if (row.finished_at === null) patch.finished_at = iso(finishMs);
-      if (row.status !== "done" && !(durationGiven && durationVal !== null)) {
-        const auto = minutesBetween(row.started_at, finishMs);
-        if (auto !== null) {
-          durationGiven = true;
-          durationVal = Math.min(auto, MAX_MINUTES);
+      const newAfter = fields.act === "finish" && hasNewPhoto;
+      if (!newAfter && row.status !== "done" && row.finished_at !== null) {
+        // back to Done after a reopen, with no new after photo: restore the original finish (and keep its minutes)
+        patch.done_at = row.finished_at;
+      } else {
+        let finishMs = photoTime(fields.photo_at, nowMs);
+        if (row.started_at !== null) {
+          const startMs = Date.parse(row.started_at);
+          if (!Number.isNaN(startMs)) finishMs = Math.max(finishMs, startMs);
+        }
+        const redo = newAfter && row.status !== "done" && row.finished_at !== null;
+        if (row.done_at === null || redo) patch.done_at = iso(finishMs);
+        if (row.finished_at === null || redo) patch.finished_at = iso(finishMs);
+        if (row.status !== "done" && !(durationGiven && durationVal !== null)) {
+          const auto = minutesBetween(row.started_at, finishMs);
+          if (auto !== null) {
+            durationGiven = true;
+            durationVal = Math.min(auto, MAX_MINUTES);
+          }
         }
       }
     } else {
