@@ -238,6 +238,11 @@ export default function JobsTab({ jtype, isOwner }: { jtype: JobType; isOwner: b
     <div className={styles.root} data-testid={`jobs-${jtype}`}>
       <div className={styles.head}>
         <h2 className={styles.title}>{label}</h2>
+        {canBill && (
+          <a className={styles.headLink} href={`/jobs/${jtype}/invoice`} data-testid="invoice-link">
+            Invoice →
+          </a>
+        )}
       </div>
 
       <div className={styles.stats}>

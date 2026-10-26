@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { computeJobUpdate, CurrentJob, isJobType } from "@/lib/jobs";
 import { checkPhoto, fail, isResponse, readInput, removePhotos, uploadPhoto } from "@/lib/graffitiServer";
-import { JOB_COLS, requireJobs, toJob } from "@/lib/jobsServer";
+import { JOB_COLS, requireJobs, sentInvoiceFor, toJob } from "@/lib/jobsServer";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +43,18 @@ export async function PATCH(request: Request, { params }: Ctx) {
 
   const result = computeJobUpdate(current, fields, Date.now(), photo !== null, who.canBill);
   if (!result.ok) return fail(result.error, 400);
+
+  // A job on a sent invoice is locked for anything that would change what was billed (city, status, time, price).
+  // The edit form re-sends every field, so compare against what's saved: notes, title and photos stay editable.
+  const LOCKED = ["status", "city", "started_at", "finished_at", "done_at", "duration_min", "bill_mode", "price_cents", "materials"] as const;
+  const saved = row as unknown as Record<string, unknown>;
+  const patchRec = result.patch as Record<string, unknown>;
+  const norm = (k: string, v: unknown) => (typeof v === "string" && k.endsWith("_at") ? Date.parse(v) : (v ?? null));
+  const touchesBilled = LOCKED.some((k) => k in patchRec && JSON.stringify(norm(k, patchRec[k])) !== JSON.stringify(norm(k, saved[k])));
+  if (touchesBilled) {
+    const sent = await sentInvoiceFor(db, params.type, id);
+    if (sent) return fail(`This job is on invoice ${sent.invoice_no}. Undo that invoice first to change its city, status, time or price.`, 409);
+  }
 
   const update: Record<string, unknown> = { ...result.patch, updated_at: new Date().toISOString() };
   // who gets the credit on the invoice: whoever finished it
@@ -90,6 +102,8 @@ export async function DELETE(_request: Request, { params }: Ctx) {
   const r = row as unknown as { created_by: string; before_photo: string | null; after_photo: string | null };
 
   if (!who.owner && r.created_by !== who.userId) return fail("Only the person who logged this (or the owner) can delete it.", 403);
+  const sent = await sentInvoiceFor(db, params.type, id);
+  if (sent) return fail(`This job is on invoice ${sent.invoice_no}, so it can't be deleted. Undo that invoice first.`, 409);
 
   const { error } = await db.from("jobs").delete().eq("id", id).eq("jtype", params.type);
   if (error) return fail(error.message, 500);

@@ -41,8 +41,16 @@ that has a job tab is not sent to `/crew`.
 - **Billing** is per job: *Hourly*, *Flat price* or *Hours + materials* (a list of materials with amounts).
   Only the owner, or a crew account with the **invoice (prices)** switch on that tab, can see or change
   prices; everyone else never receives them from the server and logs everything as hourly.
-- Job invoices (monthly, per city, tick boxes, rates per job type) come in the next update. For now the
-  tabs record the work, time, photos and billing choice.
+- **Invoices** (Owner, or crew with the tab's **invoice (prices)** switch): each tab has an **Invoice →** link to
+  `/jobs/<tab>/invoice`. It works like the graffiti invoice: a month per city, finished jobs by the day they were
+  finished, a tick box per job, **Mark as invoiced** freezes the total, rate and job list, and the owner can
+  undo it. Hourly jobs bill with the tab's rate, minimum and rounding; flat jobs bill their price; hours +
+  materials adds the materials list. Each tab (work orders, lawn care, other jobs) has its **own rate and
+  Bill to / PO numbers** under *Billing settings* (owner only). Business name, address, terms and time zone
+  are shared with the graffiti invoice. Download CSV or print/save as PDF with before/after photos. A job on a
+  sent invoice can't be deleted or have its city, status, time or price changed until the invoice is undone.
+  Google Sheets (.xlsx) output for jobs is not built yet.
+- **One more SQL step for invoices:** re-run `supabase/jobs.sql` (it only adds the `job_invoices` table).
 - Existing installs: nothing to re-run for graffiti; just add `supabase/jobs.sql`.
 
 ## Graffiti tab (removal tracker + monthly invoice)
