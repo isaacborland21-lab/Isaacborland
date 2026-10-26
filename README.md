@@ -60,13 +60,22 @@ from the main site; an account that has a job tab is not sent there.
 - **One more SQL step for invoices:** re-run `supabase/jobs.sql` (it only adds the `job_invoices` table).
 - Existing installs: nothing to re-run for graffiti; just add `supabase/jobs.sql`.
 
+## Live client map (graffiti)
+
+Graffiti → Invoice → **Live client map links** (owner only). Create a private link for Bozeman or Helena and send it to
+the client. It opens a read-only map at `/share/map/<link>` with no sign-in: finished tags only, pins colored by month,
+a button per calendar season (newest season shown first, "Show all" for everything). It refreshes itself every minute,
+so new tags appear on their own. Clients see the spot, address, date and tag type; never crew names, notes, photos,
+times or prices. Anyone with the link can view it, so share it only with the client; **Turn off** kills a link at once.
+Links are stored in `graffiti_settings` as `share:<token>` (no extra table). The map uses free OpenStreetMap tiles.
+
 ## Google My Maps export (graffiti)
 
 Graffiti → Invoice → **Google My Maps export**. Pick Bozeman or Helena and a layer (a calendar season:
 Spring Mar-May, Summer Jun-Aug, Fall Sep-Nov, Winter Dec-Feb, or a whole year), then **Download for My Maps (.csv)**.
 In My Maps: Add layer → Import the file → Latitude/Longitude as the location, Name as the title → Uniform style →
-Group places by: **Month** (one color per month). My Maps only imports into an empty layer, so to refresh the
-current season delete its layer and import again; the shared link doesn't change. Limits: 10 layers per map,
+Group places by: **Month** (one color per month). To refresh the current season later, use the layer's menu →
+Reimport and merge → Replace all items with the new file; the shared link doesn't change. Limits: 10 layers per map,
 2,000 pins per layer. Bozeman uses one layer per season; Helena is its own map with one layer per year.
 My Maps has no API, so this is a manual import.
 
