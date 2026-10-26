@@ -31,6 +31,8 @@ import {
   photoUrl,
   shrinkPhoto,
 } from "./clientUtil";
+import PatrolBar from "./PatrolBar";
+import { crewColor } from "@/lib/patrol";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -201,12 +203,19 @@ export default function GraffitiTab({ isOwner, canInvoice = isOwner }: { isOwner
     <div className={styles.root}>
       <div className={styles.head}>
         <h2 className={styles.title}>Graffiti removal tracker</h2>
+        {isOwner && (
+          <a className={styles.headLink} href="/graffiti/coverage" data-testid="coverage-link">
+            Coverage →
+          </a>
+        )}
         {(isOwner || canInvoice) && (
           <a className={styles.headLink} href="/graffiti/invoice">
             Invoice →
           </a>
         )}
       </div>
+
+      <PatrolBar />
 
       <div className={styles.stats}>
         <div className={`${styles.chip} ${styles.cReported}`}>
@@ -354,28 +363,76 @@ export default function GraffitiTab({ isOwner, canInvoice = isOwner }: { isOwner
 const BOZEMAN_CENTER: [number, number] = [45.677, -111.0386];
 const START_ZOOM = 12;
 
+/** Who did the work on a tag (whoever removed it, else who claimed or reported it). */
+const crewOf = (i: Incident) => i.removed_by_name || i.claimed_by_name || i.reported_by_name || "";
+/** When the work on a tag last happened. */
+const whenOf = (i: Incident) => i.removed_at ?? i.started_at ?? i.reported_at;
+const ago = (iso: string) => {
+  const m = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  if (h < 36) return `${h} h ago`;
+  return `${Math.round(h / 24)} days ago`;
+};
+const escHtml = (t: string) => t.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
+
+type Routes = { day: string; crews: { name: string; color: string; lines: [number, number][][]; last: string; live: boolean }[] };
+
 function MapView({ incidents, active, onOpen }: { incidents: Incident[]; active: boolean; onOpen: (id: number) => void }) {
   const box = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const layerRef = useRef<any>(null);
+  const routeLayerRef = useRef<any>(null);
   const onOpenRef = useRef(onOpen);
   onOpenRef.current = onOpen;
   const [filter, setFilter] = useState<"open" | "" | "removed">("");
+  // only tags worked on recently ("" = any time), so a crew can see where others have been today / this week
+  const [since, setSince] = useState<"" | "today" | "7" | "30">("");
+  const [colorBy, setColorBy] = useState<"status" | "crew">("status");
+  const [showRoutes, setShowRoutes] = useState(true);
+  const [routes, setRoutes] = useState<Routes | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const latest = useRef({ incidents, filter });
-  latest.current = { incidents, filter };
+
+  const shown = useMemo(() => {
+    const now = Date.now();
+    const startToday = new Date();
+    startToday.setHours(0, 0, 0, 0);
+    const from = since === "today" ? startToday.getTime() : since ? now - Number(since) * 86_400_000 : 0;
+    return incidents.filter((i) => (filter === "open" ? i.status !== "removed" : !filter || i.status === filter) && (!from || Date.parse(whenOf(i)) >= from));
+  }, [incidents, filter, since]);
+  const crews = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const i of shown) m.set(crewOf(i) || "Unknown", (m.get(crewOf(i) || "Unknown") ?? 0) + 1);
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  }, [shown]);
+
+  const latest = useRef({ shown, colorBy, routes, showRoutes });
+  latest.current = { shown, colorBy, routes, showRoutes };
 
   const draw = useCallback(() => {
     const L = (window as any).L as LeafletNS | undefined;
     const map = mapRef.current;
     const layer = layerRef.current;
-    if (!L || !map || !layer) return;
+    const rl = routeLayerRef.current;
+    if (!L || !map || !layer || !rl) return;
     layer.clearLayers();
-    const { incidents: all, filter: f } = latest.current;
-    const shown = all.filter((i) => (f === "open" ? i.status !== "removed" : !f || i.status === f));
-    for (const i of shown) {
-      const m = L.circleMarker([i.lat, i.lng], { radius: 11, color: "#fff", weight: 2, fillColor: COLORS[i.status], fillOpacity: 0.95 });
+    rl.clearLayers();
+    const { shown: list, colorBy: cb, routes: r, showRoutes: sr } = latest.current;
+    // today's patrol routes go underneath the pins
+    if (sr && r) {
+      for (const c of r.crews) {
+        for (const line of c.lines) L.polyline(line, { color: c.color, weight: 5, opacity: 0.55 }).addTo(rl);
+      }
+    }
+    for (const i of list) {
+      const who = crewOf(i);
+      const fill = cb === "crew" ? crewColor(who) : COLORS[i.status];
+      const m = L.circleMarker([i.lat, i.lng], { radius: 11, color: "#fff", weight: 2, fillColor: fill, fillOpacity: 0.95 });
+      m.bindTooltip(
+        `${escHtml(i.address || "Tag")}<br/>${escHtml(STATUS_LABEL[i.status])}${who ? ` · ${escHtml(who)}` : ""} · ${escHtml(ago(whenOf(i)))}`,
+        { direction: "top", offset: [0, -10] },
+      );
       m.on("click", () => onOpenRef.current(i.id));
       m.addTo(layer);
     }
@@ -399,6 +456,7 @@ function MapView({ incidents, active, onOpen }: { incidents: Incident[]; active:
           // starts on Bozeman but is free to zoom out and pan
           const map = L.map(box.current, { minZoom: 3 }).setView(BOZEMAN_CENTER, START_ZOOM);
           L.tileLayer(TILE_URL, { maxZoom: 19, attribution: TILE_ATTRIBUTION }).addTo(map);
+          routeLayerRef.current = L.layerGroup().addTo(map);
           layerRef.current = L.layerGroup().addTo(map);
           mapRef.current = map;
         }
@@ -413,36 +471,85 @@ function MapView({ incidents, active, onOpen }: { incidents: Incident[]; active:
     };
   }, [active, draw]);
 
-  useEffect(() => draw(), [incidents, filter, draw]);
+  // everyone's patrol routes for today, refreshed every minute while the map is open
+  useEffect(() => {
+    if (!active || !showRoutes) return;
+    let alive = true;
+    const get = () =>
+      apiJson<Routes>("/api/graffiti/patrol")
+        .then((r) => alive && setRoutes(r))
+        .catch(() => {});
+    void get();
+    const t = window.setInterval(get, 60_000);
+    return () => {
+      alive = false;
+      window.clearInterval(t);
+    };
+  }, [active, showRoutes]);
+
+  useEffect(() => draw(), [shown, colorBy, routes, showRoutes, draw]);
   useEffect(
     () => () => {
       mapRef.current?.remove();
       mapRef.current = null;
       layerRef.current = null;
+      routeLayerRef.current = null;
     },
     [],
   );
 
   return (
     <>
-      <div ref={top} className={styles.filters} style={{ scrollMarginTop: 12 }}>
-        <select aria-label="Map filter" style={{ flex: 1 }} value={filter} onChange={(e) => setFilter(e.target.value as "open" | "" | "removed")}>
+      <div ref={top} className={styles.filters} style={{ scrollMarginTop: 12, flexWrap: "wrap" }}>
+        <select aria-label="Map filter" style={{ flex: "1 1 150px" }} value={filter} onChange={(e) => setFilter(e.target.value as "open" | "" | "removed")}>
           <option value="open">Open (not removed yet)</option>
           <option value="">Everything</option>
           <option value="removed">Removed only</option>
         </select>
+        <select aria-label="When" data-testid="map-since" style={{ flex: "1 1 150px" }} value={since} onChange={(e) => setSince(e.target.value as "" | "today" | "7" | "30")}>
+          <option value="">Any time</option>
+          <option value="today">Today</option>
+          <option value="7">Last 7 days</option>
+          <option value="30">Last 30 days</option>
+        </select>
+        <select aria-label="Color pins by" data-testid="map-color" style={{ flex: "1 1 150px" }} value={colorBy} onChange={(e) => setColorBy(e.target.value as "status" | "crew")}>
+          <option value="status">Color: status</option>
+          <option value="crew">Color: who did it</option>
+        </select>
       </div>
+      <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 14, margin: "0 0 8px" }}>
+        <input type="checkbox" checked={showRoutes} onChange={(e) => setShowRoutes(e.target.checked)} data-testid="map-routes" /> Show where crews have driven
+        today
+      </label>
       <div ref={box} className={styles.map} data-testid="map">
         {err && <div className={styles.mapErr}>{err}</div>}
       </div>
-      <div className={styles.legend}>
-        {GRAFFITI_STATUSES.map((s) => (
-          <span key={s}>
-            <i className={styles.dot} style={{ background: COLORS[s] }} />
-            {STATUS_LABEL[s]}
-          </span>
-        ))}
+      <div className={styles.legend} data-testid="map-legend">
+        {colorBy === "status"
+          ? GRAFFITI_STATUSES.map((st) => (
+              <span key={st}>
+                <i className={styles.dot} style={{ background: COLORS[st] }} />
+                {STATUS_LABEL[st]}
+              </span>
+            ))
+          : crews.map(([name, n]) => (
+              <span key={name}>
+                <i className={styles.dot} style={{ background: crewColor(name === "Unknown" ? "" : name) }} />
+                {name} ({n})
+              </span>
+            ))}
       </div>
+      {showRoutes && routes && routes.crews.length > 0 && (
+        <div className={styles.legend} data-testid="routes-legend">
+          {routes.crews.map((c) => (
+            <span key={c.name}>
+              <i className={styles.dot} style={{ background: c.color, borderRadius: 2 }} />
+              {c.name} route{c.live ? " (active now)" : ` (last ${ago(c.last)})`}
+            </span>
+          ))}
+        </div>
+      )}
+      {showRoutes && routes && routes.crews.length === 0 && <div className={styles.legend}>No patrol routes recorded today yet.</div>}
     </>
   );
 }
