@@ -35,6 +35,7 @@ import {
 } from "@/lib/graffiti";
 import { apiJson, photoUrl } from "../clientUtil";
 import MyMapsPanel from "./MyMapsPanel";
+import ClientMapLinks from "./ClientMapLinks";
 
 type SentInvoice = { snapshot: InvoiceSnapshot; build: InvoiceBuild; dropped: number[]; changed: boolean };
 
@@ -512,6 +513,8 @@ export default function InvoicePage() {
             </ul>
           </div>
         )}
+
+        {isOwner && <ClientMapLinks />}
 
         <MyMapsPanel city={c} />
 

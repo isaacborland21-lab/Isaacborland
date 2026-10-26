@@ -94,8 +94,8 @@ export default function MyMapsPanel({ city: pageCity }: { city: City }) {
         <li>Location: tick Latitude and Longitude. Title: choose Name.</li>
         <li>Click the layer&apos;s Uniform style, then Group places by: Month. Each month gets its own color (you can change them).</li>
         <li>
-          My Maps only imports into an empty layer. To update the current season, delete its layer and import the new file. The link you
-          shared stays the same.
+          To update the current season later: on that layer&apos;s menu choose Reimport and merge, then Replace all items, and pick the new file.
+          The link you shared stays the same.
         </li>
       </ol>
     </details>
