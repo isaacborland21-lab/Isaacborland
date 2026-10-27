@@ -301,7 +301,8 @@ export type IncidentPatch = Partial<{
  *  - finishing stamps the finish with the after-photo time and, unless minutes
  *    were typed, sets the time on site from the two photo times
  *  - moving back to reported/scheduled clears the work-in-progress data
- *  - restarting a finished job drops its old time
+ *  - reopening a finished job (In progress) keeps its finish time and minutes; marking it Removed again
+ *    without a new after photo restores them (a mis-tap can't inflate the time). A new after photo re-times it.
  * `hasNewPhoto` only matters for the "nothing to update" check.
  */
 export function computeUpdate(
@@ -330,26 +331,40 @@ export function computeUpdate(
     patch.status = status;
     if (status === "in_progress") {
       if (row.started_at === null) patch.started_at = iso(photoTime(fields.photo_at, nowMs));
-      patch.finished_at = null;
-      patch.removed_at = null;
-      // a restarted job loses its old time; a fresh start ignores any typed time
-      durationGiven = row.status === "removed";
+      if (row.status === "removed") {
+        // Reopening a finished job (often a mis-tap) keeps its finish time and minutes, so tapping
+        // "Removed" again puts it back exactly as it was. Only a new after photo re-times it.
+        patch.removed_at = null;
+        durationGiven = false;
+      } else {
+        patch.finished_at = null;
+        patch.removed_at = null;
+        // a fresh start ignores any typed time
+        durationGiven = false;
+      }
       durationVal = null;
     } else if (status === "removed") {
-      // the clock stops when the after photo was taken (never before the job started)
-      let finishMs = photoTime(fields.photo_at, nowMs);
-      if (row.started_at !== null) {
-        const startMs = Date.parse(row.started_at);
-        if (!Number.isNaN(startMs)) finishMs = Math.max(finishMs, startMs);
-      }
-      if (row.removed_at === null) patch.removed_at = iso(finishMs);
-      if (row.finished_at === null) patch.finished_at = iso(finishMs);
-      // time from the photos unless the crew typed a number
-      if (row.status !== "removed" && !(durationGiven && durationVal !== null)) {
-        const auto = minutesBetween(row.started_at, finishMs);
-        if (auto !== null) {
-          durationGiven = true;
-          durationVal = Math.min(auto, MAX_MINUTES);
+      const newAfter = fields.act === "finish" && hasNewPhoto;
+      if (!newAfter && row.status !== "removed" && row.finished_at !== null) {
+        // back to Removed after a reopen, with no new after photo: restore the original finish (and keep its minutes)
+        patch.removed_at = row.finished_at;
+      } else {
+        // the clock stops when the after photo was taken (never before the job started)
+        let finishMs = photoTime(fields.photo_at, nowMs);
+        if (row.started_at !== null) {
+          const startMs = Date.parse(row.started_at);
+          if (!Number.isNaN(startMs)) finishMs = Math.max(finishMs, startMs);
+        }
+        const redo = newAfter && row.status !== "removed" && row.finished_at !== null;
+        if (row.removed_at === null || redo) patch.removed_at = iso(finishMs);
+        if (row.finished_at === null || redo) patch.finished_at = iso(finishMs);
+        // time from the photos unless the crew typed a number
+        if (row.status !== "removed" && !(durationGiven && durationVal !== null)) {
+          const auto = minutesBetween(row.started_at, finishMs);
+          if (auto !== null) {
+            durationGiven = true;
+            durationVal = Math.min(auto, MAX_MINUTES);
+          }
         }
       }
     } else {

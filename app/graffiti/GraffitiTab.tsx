@@ -115,6 +115,7 @@ export default function GraffitiTab({ isOwner, canInvoice = isOwner }: { isOwner
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const toastTimer = useRef<number | undefined>(undefined);
 
+  // "" = not finished yet (finished tags are hidden until "Everything" or "Removed" is picked)
   const [fStatus, setFStatus] = useState("");
   const [fSearch, setFSearch] = useState("");
 
@@ -190,13 +191,14 @@ export default function GraffitiTab({ isOwner, canInvoice = isOwner }: { isOwner
     const isOpen = (i: Incident) => i.status === "reported" || i.status === "scheduled";
     const list = incidents.filter(
       (i) =>
-        (!fStatus || (fStatus === "needs" ? isOpen(i) : i.status === fStatus)) &&
+        (fStatus === "all" || (fStatus === "" ? i.status !== "removed" : fStatus === "needs" ? isOpen(i) : i.status === fStatus)) &&
         (!q || `${i.address ?? ""} ${i.description ?? ""} ${i.notes ?? ""} ${i.reported_by_name ?? ""} ${typeName(i.gtype, i.gtype_other)}`.toLowerCase().includes(q)),
     );
     // urgent reports that still need removing go to the top (otherwise newest first, as loaded)
     return [...list.filter((i) => i.urgent && isOpen(i)), ...list.filter((i) => !(i.urgent && isOpen(i)))];
   }, [incidents, fStatus, fSearch]);
 
+  const hiddenDone = useMemo(() => incidents.filter((i) => i.status === "removed").length, [incidents]);
   const opened = openId !== null ? incidents.find((i) => i.id === openId) ?? null : null;
 
   return (
@@ -265,7 +267,8 @@ export default function GraffitiTab({ isOwner, canInvoice = isOwner }: { isOwner
       <section hidden={view !== "list"} aria-label="Incident list">
         <div className={styles.filters}>
           <select aria-label="Filter by status" value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
-            <option value="">All statuses</option>
+            <option value="">Not finished yet</option>
+            <option value="all">Everything (incl. finished)</option>
             <option value="needs">Needs removal</option>
             {GRAFFITI_STATUSES.map((s) => (
               <option key={s} value={s}>
@@ -275,10 +278,20 @@ export default function GraffitiTab({ isOwner, canInvoice = isOwner }: { isOwner
           </select>
           <input type="text" aria-label="Search" placeholder="Search street / notes" value={fSearch} onChange={(e) => setFSearch(e.target.value)} />
         </div>
+        {loaded && fStatus === "" && hiddenDone > 0 && (
+          <div className={styles.small} data-testid="hidden-done" style={{ margin: "0 0 8px" }}>
+            {hiddenDone} finished tag{hiddenDone === 1 ? "" : "s"} hidden.{" "}
+            <button type="button" className={styles.linkbtn} style={{ display: "inline", margin: 0, padding: 0 }} onClick={() => setFStatus("all")}>
+              Show them
+            </button>
+          </div>
+        )}
         {!loaded ? (
           <div className={styles.empty}>Loading…</div>
         ) : rows.length === 0 ? (
-          <div className={styles.empty}>{incidents.length ? "Nothing matches." : "No incidents logged yet. Tap + Log new."}</div>
+          <div className={styles.empty}>
+            {incidents.length ? (fStatus === "" && hiddenDone > 0 ? "Nothing left to do." : "Nothing matches.") : "No incidents logged yet. Tap + Log new."}
+          </div>
         ) : (
           rows.map((i) => {
             const src = photoUrl(i.after_photo || i.before_photo || i.report_photo);
@@ -384,6 +397,7 @@ function MapView({ incidents, active, onOpen }: { incidents: Incident[]; active:
   const mapRef = useRef<any>(null);
   const layerRef = useRef<any>(null);
   const routeLayerRef = useRef<any>(null);
+  const fittedRoutes = useRef(false);
   const onOpenRef = useRef(onOpen);
   onOpenRef.current = onOpen;
   const [filter, setFilter] = useState<"open" | "" | "removed">("");
@@ -421,8 +435,19 @@ function MapView({ incidents, active, onOpen }: { incidents: Incident[]; active:
     const { shown: list, colorBy: cb, routes: r, showRoutes: sr } = latest.current;
     // today's patrol routes go underneath the pins
     if (sr && r) {
+      // a white edge under each route so it stands out on the street map
       for (const c of r.crews) {
-        for (const line of c.lines) L.polyline(line, { color: c.color, weight: 5, opacity: 0.55 }).addTo(rl);
+        for (const line of c.lines) {
+          L.polyline(line, { color: "#fff", weight: 9, opacity: 0.9, interactive: false }).addTo(rl);
+          L.polyline(line, { color: c.color, weight: 5, opacity: 0.95 }).bindTooltip(`${escHtml(c.name)} drove here today`, { sticky: true }).addTo(rl);
+        }
+      }
+      // the first time routes show up, make sure they're on screen (they may be outside the starting view)
+      const pts = r.crews.flatMap((c) => c.lines.flat());
+      if (pts.length > 0 && !fittedRoutes.current) {
+        fittedRoutes.current = true;
+        const view = map.getBounds();
+        if (pts.some((p: [number, number]) => !view.contains(p))) map.fitBounds(L.latLngBounds(pts).extend(view.getCenter()), { padding: [20, 20], maxZoom: 15 });
       }
     }
     for (const i of list) {
@@ -541,6 +566,18 @@ function MapView({ incidents, active, onOpen }: { incidents: Incident[]; active:
       </div>
       {showRoutes && routes && routes.crews.length > 0 && (
         <div className={styles.legend} data-testid="routes-legend">
+          <button
+            type="button"
+            className={styles.linkbtn}
+            data-testid="routes-zoom"
+            onClick={() => {
+              const L = (window as any).L as LeafletNS | undefined;
+              const pts = routes.crews.flatMap((c) => c.lines.flat());
+              if (L && mapRef.current && pts.length) mapRef.current.fitBounds(L.latLngBounds(pts), { padding: [20, 20], maxZoom: 16 });
+            }}
+          >
+            Show routes on map
+          </button>
           {routes.crews.map((c) => (
             <span key={c.name}>
               <i className={styles.dot} style={{ background: c.color, borderRadius: 2 }} />
@@ -1523,7 +1560,22 @@ function IncidentSheet({
         <span className={styles.lbl}>Status</span>
         <div className={styles.seg}>
           {GRAFFITI_STATUSES.map((s) => (
-            <button key={s} type="button" disabled={busy} className={`${styles.btn} ${styles.sec} ${inc.status === s ? styles.cur : ""}`} onClick={() => save({ status: s })}>
+            <button key={s} type="button" disabled={busy} className={`${styles.btn} ${styles.sec} ${inc.status === s ? styles.cur : ""}`}
+              onClick={() => {
+                if (s === inc.status) return;
+                // a finished job is only reopened on purpose (a mis-tap here used to re-time the job)
+                if (
+                  inc.status === "removed" &&
+                  !window.confirm(
+                    s === "in_progress"
+                      ? "This job is finished. Reopen it as In progress? Its recorded time stays as it is unless you take a new after photo."
+                      : `This job is finished. Move it back to ${STATUS_LABEL[s]}? This clears its start and finish times.`,
+                  )
+                )
+                  return;
+                void save({ status: s });
+              }}
+            >
               {STATUS_LABEL[s]}
             </button>
           ))}

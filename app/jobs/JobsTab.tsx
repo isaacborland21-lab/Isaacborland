@@ -758,7 +758,22 @@ function JobSheet({
         <span className={styles.lbl}>Status</span>
         <div className={styles.seg}>
           {JOB_STATUSES.map((s) => (
-            <button key={s} type="button" disabled={busy} className={`${styles.btn} ${styles.sec} ${job.status === s ? styles.cur : ""}`} onClick={() => save({ status: s })}>
+            <button key={s} type="button" disabled={busy} className={`${styles.btn} ${styles.sec} ${job.status === s ? styles.cur : ""}`}
+              onClick={() => {
+                if (s === job.status) return;
+                // a finished job is only reopened on purpose (a mis-tap here used to re-time the job)
+                if (
+                  job.status === "done" &&
+                  !window.confirm(
+                    s === "in_progress"
+                      ? "This job is done. Reopen it as In progress? Its recorded time stays as it is unless you take a new after photo."
+                      : `This job is done. Move it back to ${JOB_STATUS_LABEL[s]}? This clears its start and finish times.`,
+                  )
+                )
+                  return;
+                void save({ status: s });
+              }}
+            >
               {JOB_STATUS_LABEL[s]}
             </button>
           ))}
