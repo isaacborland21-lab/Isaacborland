@@ -121,11 +121,28 @@ taken. The owner prints a monthly invoice for the city from `/graffiti/invoice`.
   removes it opens it from the list, taps **I'll take this** (so two people do
   not both drive out), then uses the normal before/after photos.
 - Everyone's list refreshes every 15 seconds and shows a toast for new reports
-  (urgent ones are called out). The **Needs removal** filter lists open reports,
+  (urgent ones are called out). The **Reported** filter lists open reports,
   urgent first. There are no push, text or email alerts, only what shows in the app.
 - Someone else can take over a claimed job; only the person who took it (or the
   owner) can give it back.
 - Existing installs: re-run `supabase/graffiti.sql`. It adds the new columns and is safe to re-run.
+
+**More photos on a tag**
+
+- A tag still has its three timer photos (as reported / before / after). On top of those, any
+  graffiti crew account can add **more photos to any tag at any time**: open the tag → *More photos* →
+  **Take photo** (camera) or **Choose photos** (pick several from the phone). It works in every
+  status, including a finished tag and one on a sent invoice, because extra photos never change the
+  time, the status or the bill.
+- When *reporting*, you can attach several photos at once (the first is the "as reported" photo, the
+  rest are saved as extra photos right after the report; up to 10 at report time).
+- Photos upload one at a time, each shrunk like the others. If the signal drops part-way, what was
+  already added is kept and the message says how many to choose again. Up to 30 extra photos per tag.
+- Each photo shows who added it and when. Whoever added a photo (or the owner) can remove it.
+  Deleting a tag removes all its photos. The list card shows "+N photos".
+- Extra photos are **not** printed on the invoice's photo page (only the before/after photos are).
+- Setup: re-run `supabase/graffiti.sql` (adds the `graffiti_photos` table). Until it is run the tag
+  list still works; only the extra photos are missing and adding one reports an error.
 
 **Google Sheets invoice (one section per crew member)**
 

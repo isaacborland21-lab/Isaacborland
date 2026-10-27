@@ -7,6 +7,7 @@ import {
   INCIDENT_COLS,
   isResponse,
   loadInvoices,
+  loadPhotos,
   readInput,
   removePhotos,
   requireGraffiti,
@@ -98,7 +99,13 @@ export async function PATCH(request: Request, { params }: Ctx) {
     return fail(error?.message ?? "Could not save the change.", 500);
   }
   await removePhotos(db, [oldName]);
-  return NextResponse.json({ incident: toIncident(data as unknown as Record<string, unknown>, who.userId) });
+  let photos: Awaited<ReturnType<typeof loadPhotos>>;
+  try {
+    photos = await loadPhotos(db, [id], who.userId);
+  } catch {
+    photos = new Map(); // the change is saved; the next refresh shows the extra photos again
+  }
+  return NextResponse.json({ incident: toIncident(data as unknown as Record<string, unknown>, who.userId, photos.get(id) ?? []) });
 }
 
 // Only whoever logged the incident, or the owner, may delete it — and never one that is on a sent invoice.
@@ -124,8 +131,10 @@ export async function DELETE(_request: Request, { params }: Ctx) {
   const sent = invoices.find((i) => i.job_ids.includes(id));
   if (sent) return fail(`This tag is on invoice ${sent.invoice_no} (${sent.month}), which was marked as sent. Undo that invoice first.`, 409);
 
+  // the extra photos' rows go with the tag (cascade); their files are removed below
+  const { data: extra } = await db.from("graffiti_photos").select("name").eq("incident_id", id);
   const { error } = await db.from("graffiti_incidents").delete().eq("id", id);
   if (error) return fail(error.message, 500);
-  await removePhotos(db, [r.before_photo, r.after_photo, r.report_photo]);
+  await removePhotos(db, [r.before_photo, r.after_photo, r.report_photo, ...((extra ?? []) as { name: string }[]).map((p) => p.name)]);
   return NextResponse.json({ ok: true });
 }

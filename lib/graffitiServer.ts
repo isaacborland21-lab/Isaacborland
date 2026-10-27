@@ -6,6 +6,7 @@ import {
   BillingSettings,
   Fields,
   Incident,
+  IncidentPhoto,
   InvoiceRow,
   InvoiceSnapshot,
   MAX_PHOTO_BYTES,
@@ -130,9 +131,36 @@ export async function removePhotos(db: Db, names: (string | null | undefined)[])
   }
 }
 
-export function toIncident(row: Record<string, unknown>, userId: string): Incident {
+export function toIncident(row: Record<string, unknown>, userId: string, photos: IncidentPhoto[] = []): Incident {
   const { created_by, claimed_by, ...rest } = row as Record<string, unknown> & { created_by?: string; claimed_by?: string | null };
-  return { ...(rest as unknown as Incident), mine: created_by === userId, claimed_by_me: !!claimed_by && claimed_by === userId };
+  return { ...(rest as unknown as Incident), mine: created_by === userId, claimed_by_me: !!claimed_by && claimed_by === userId, photos };
+}
+
+export const PHOTO_COLS = "id, incident_id, name, added_by, added_by_name, created_at";
+type PhotoRow = { id: number | string; incident_id: number | string; name: string; added_by: string; added_by_name: string | null; created_at: string };
+
+/** The extra photos of the given tags, oldest first, keyed by tag id. */
+export async function loadPhotos(db: Db, ids: number[], userId: string): Promise<Map<number, IncidentPhoto[]>> {
+  const out = new Map<number, IncidentPhoto[]>();
+  if (ids.length === 0) return out;
+  // ids go in the request URL: ask in chunks so a long list can never exceed the URL limit
+  for (let i = 0; i < ids.length; i += 300) {
+    const chunk = ids.slice(i, i + 300);
+    const rows = await fetchAll<PhotoRow>(
+      (a, b) =>
+        db.from("graffiti_photos").select(PHOTO_COLS).in("incident_id", chunk).order("id", { ascending: true }).range(a, b) as unknown as PromiseLike<{
+          data: PhotoRow[] | null;
+          error: { message: string } | null;
+        }>,
+    );
+    for (const r of rows) {
+      const key = Number(r.incident_id);
+      const list = out.get(key) ?? [];
+      list.push({ id: Number(r.id), name: r.name, at: r.created_at, by: r.added_by_name, mine: r.added_by === userId });
+      out.set(key, list);
+    }
+  }
+  return out;
 }
 
 export async function loadSettings(db: Db): Promise<BillingSettings> {
