@@ -115,6 +115,7 @@ export default function GraffitiTab({ isOwner, canInvoice = isOwner }: { isOwner
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const toastTimer = useRef<number | undefined>(undefined);
 
+  // "" = not finished yet (finished tags are hidden until "Everything" or "Removed" is picked)
   const [fStatus, setFStatus] = useState("");
   const [fSearch, setFSearch] = useState("");
 
@@ -190,13 +191,14 @@ export default function GraffitiTab({ isOwner, canInvoice = isOwner }: { isOwner
     const isOpen = (i: Incident) => i.status === "reported" || i.status === "scheduled";
     const list = incidents.filter(
       (i) =>
-        (!fStatus || (fStatus === "needs" ? isOpen(i) : i.status === fStatus)) &&
+        (fStatus === "all" || (fStatus === "" ? i.status !== "removed" : fStatus === "needs" ? isOpen(i) : i.status === fStatus)) &&
         (!q || `${i.address ?? ""} ${i.description ?? ""} ${i.notes ?? ""} ${i.reported_by_name ?? ""} ${typeName(i.gtype, i.gtype_other)}`.toLowerCase().includes(q)),
     );
     // urgent reports that still need removing go to the top (otherwise newest first, as loaded)
     return [...list.filter((i) => i.urgent && isOpen(i)), ...list.filter((i) => !(i.urgent && isOpen(i)))];
   }, [incidents, fStatus, fSearch]);
 
+  const hiddenDone = useMemo(() => incidents.filter((i) => i.status === "removed").length, [incidents]);
   const opened = openId !== null ? incidents.find((i) => i.id === openId) ?? null : null;
 
   return (
@@ -265,7 +267,8 @@ export default function GraffitiTab({ isOwner, canInvoice = isOwner }: { isOwner
       <section hidden={view !== "list"} aria-label="Incident list">
         <div className={styles.filters}>
           <select aria-label="Filter by status" value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
-            <option value="">All statuses</option>
+            <option value="">Not finished yet</option>
+            <option value="all">Everything (incl. finished)</option>
             <option value="needs">Needs removal</option>
             {GRAFFITI_STATUSES.map((s) => (
               <option key={s} value={s}>
@@ -275,10 +278,20 @@ export default function GraffitiTab({ isOwner, canInvoice = isOwner }: { isOwner
           </select>
           <input type="text" aria-label="Search" placeholder="Search street / notes" value={fSearch} onChange={(e) => setFSearch(e.target.value)} />
         </div>
+        {loaded && fStatus === "" && hiddenDone > 0 && (
+          <div className={styles.small} data-testid="hidden-done" style={{ margin: "0 0 8px" }}>
+            {hiddenDone} finished tag{hiddenDone === 1 ? "" : "s"} hidden.{" "}
+            <button type="button" className={styles.linkbtn} style={{ display: "inline", margin: 0, padding: 0 }} onClick={() => setFStatus("all")}>
+              Show them
+            </button>
+          </div>
+        )}
         {!loaded ? (
           <div className={styles.empty}>Loading…</div>
         ) : rows.length === 0 ? (
-          <div className={styles.empty}>{incidents.length ? "Nothing matches." : "No incidents logged yet. Tap + Log new."}</div>
+          <div className={styles.empty}>
+            {incidents.length ? (fStatus === "" && hiddenDone > 0 ? "Nothing left to do." : "Nothing matches.") : "No incidents logged yet. Tap + Log new."}
+          </div>
         ) : (
           rows.map((i) => {
             const src = photoUrl(i.after_photo || i.before_photo || i.report_photo);
