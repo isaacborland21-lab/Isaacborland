@@ -120,3 +120,17 @@ create index if not exists graffiti_invoices_city_month on public.graffiti_invoi
 -- Invoices for a date range, not just a whole month (safe to re-run). Null = the whole month.
 alter table public.graffiti_invoices add column if not exists date_from date;
 alter table public.graffiti_invoices add column if not exists date_to date;
+
+-- Extra photos on a tag (safe to re-run). The three original slots (as reported / before / after) stay on the
+-- incident row because they drive the timer; every other photo, added any time, lives here: one row per photo.
+-- Deleting a tag removes its rows (the API removes the files from the bucket).
+create table if not exists public.graffiti_photos (
+  id             bigint generated always as identity primary key,
+  incident_id    bigint      not null references public.graffiti_incidents (id) on delete cascade,
+  name           text        not null,          -- file name in the private 'graffiti' bucket
+  added_by       text        not null,          -- Clerk user id
+  added_by_name  text,
+  created_at     timestamptz not null default now()
+);
+create index if not exists graffiti_photos_incident_idx on public.graffiti_photos (incident_id, id);
+alter table public.graffiti_photos enable row level security;

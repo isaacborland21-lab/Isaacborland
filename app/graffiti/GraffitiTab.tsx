@@ -12,6 +12,8 @@ import {
   GraffitiStatus,
   GraffitiType,
   Incident,
+  IncidentPhoto,
+  MAX_EXTRA_PHOTOS,
   MAX_MINUTES,
   STATUS_LABEL,
   TYPE_NAMES,
@@ -92,6 +94,15 @@ const writeStore = (k: string, v: string) => {
 };
 
 type Toast = (msg: string) => void;
+/** The files chosen in a file input, as a plain list (read them before the input is reset). */
+function filesOf(input: HTMLInputElement): File[] {
+  const out: File[] = [];
+  const list = input.files;
+  if (list) for (let i = 0; i < list.length; i++) out.push(list[i]);
+  return out;
+}
+/** Most photos one report can start with (more can be added to the tag afterwards). */
+const MAX_REPORT_PHOTOS = 10;
 export const errMsg = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong.");
 
 /* ======================================================================
@@ -181,6 +192,10 @@ export default function GraffitiTab({ isOwner, canInvoice = isOwner }: { isOwner
 
   const upsert = useCallback((inc: Incident) => {
     setIncidents((prev) => (prev.some((x) => x.id === inc.id) ? prev.map((x) => (x.id === inc.id ? inc : x)) : [inc, ...prev]));
+  }, []);
+  // extra photos changed on one tag: update only that list, so nothing else on the tag is overwritten
+  const setPhotos = useCallback((id: number, photos: IncidentPhoto[]) => {
+    setIncidents((prev) => prev.map((x) => (x.id === id ? { ...x, photos } : x)));
   }, []);
 
   const stats = useMemo(() => {
@@ -301,7 +316,8 @@ export default function GraffitiTab({ isOwner, canInvoice = isOwner }: { isOwner
           </div>
         ) : (
           rows.map((i) => {
-            const src = photoUrl(i.after_photo || i.before_photo || i.report_photo);
+            const extra = i.photos?.length ?? 0;
+            const src = photoUrl(i.after_photo || i.before_photo || i.report_photo || i.photos?.[0]?.name);
             return (
               <button key={i.id} type="button" className={styles.card} onClick={() => setOpenId(i.id)}>
                 {src ? (
@@ -315,7 +331,9 @@ export default function GraffitiTab({ isOwner, canInvoice = isOwner }: { isOwner
                   {i.urgent && i.status !== "removed" && <span className={`${styles.badge} ${styles.bUrgent}`}>Urgent</span>}
                   <div className={styles.cardTitle}>{i.address || `${i.lat.toFixed(4)}, ${i.lng.toFixed(4)}`}</div>
                   <div className={styles.cardMeta}>
-                    {`${typeName(i.gtype, i.gtype_other)} · ${fmtDate(i.reported_at)}` + (i.duration_min != null ? ` · ${fmtDur(i.duration_min)}` : "")}
+                    {`${typeName(i.gtype, i.gtype_other)} · ${fmtDate(i.reported_at)}` +
+                      (i.duration_min != null ? ` · ${fmtDur(i.duration_min)}` : "") +
+                      (extra > 0 ? ` · +${extra} photo${extra === 1 ? "" : "s"}` : "")}
                   </div>
                   {(i.reported_by_name || i.claimed_by_name || i.removed_by_name) && (
                     <div className={styles.cardMeta}>
@@ -359,9 +377,11 @@ export default function GraffitiTab({ isOwner, canInvoice = isOwner }: { isOwner
           key={opened.id}
           inc={opened}
           canDelete={isOwner || opened.mine === true}
+          isOwner={isOwner}
           toast={toast}
           onClose={() => setOpenId(null)}
           onSaved={upsert}
+          onPhotos={setPhotos}
           onDeleted={(id) => setIncidents((prev) => prev.filter((x) => x.id !== id))}
         />
       )}
@@ -751,8 +771,9 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
   // "remove": I'm at the tag and about to remove it (before photo starts the clock).
   // "report": I'm just reporting it so somebody else can remove it.
   const [intent, setIntent] = useState<"remove" | "report">("remove");
-  const [reportFile, setReportFile] = useState<File | null>(null);
-  const [reportPreview, setReportPreview] = useState<string | null>(null);
+  // photos of the tag when reporting: the first is the "as reported" photo, any more are added to the tag after it is saved
+  const [reportFiles, setReportFiles] = useState<File[]>([]);
+  const [reportPreviews, setReportPreviews] = useState<string[]>([]);
   const [urgent, setUrgent] = useState(false);
   const [surface, setSurface] = useState("");
   const [chemical, setChemical] = useState("");
@@ -812,16 +833,20 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
     if (c) setChemical(c);
   }, []);
 
-  // small preview of the report photo
+  // small previews of the report photos
   useEffect(() => {
-    if (!reportFile) {
-      setReportPreview(null);
-      return;
-    }
-    const u = URL.createObjectURL(reportFile);
-    setReportPreview(u);
-    return () => URL.revokeObjectURL(u);
-  }, [reportFile]);
+    const urls = reportFiles.map((f) => URL.createObjectURL(f));
+    setReportPreviews(urls);
+    return () => urls.forEach((u) => URL.revokeObjectURL(u));
+  }, [reportFiles]);
+
+  function addReportFiles(files: File[]) {
+    if (files.length === 0) return;
+    if (blockIfLocked()) return;
+    const room = MAX_REPORT_PHOTOS - reportFiles.length;
+    if (files.length > room) toast(`Up to ${MAX_REPORT_PHOTOS} photos when reporting. Add the rest from the tag afterwards.`);
+    setReportFiles((prev) => [...prev, ...files.slice(0, Math.max(0, room))]);
+  }
 
   const lookup = useCallback(
     (lat: number, lng: number) => {
@@ -960,7 +985,7 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
     setAddress("");
     setDescription("");
     setMinutes("");
-    setReportFile(null);
+    setReportFiles([]);
     setUrgent(false);
     setSurface("");
     setGtypeOther("");
@@ -1044,14 +1069,33 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
       if (!reporting) fd.set("chemical", chemical);
       if (reporting) {
         if (urgent) fd.set("urgent", "1");
-        if (reportFile) fd.set("photo", await shrinkPhoto(reportFile), "report.jpg");
+        if (reportFiles[0]) fd.set("photo", await shrinkPhoto(reportFiles[0]), "report.jpg");
       } else {
         fd.set("duration_min", minutes);
       }
       const { incident } = await apiJson<{ incident: Incident }>("/api/graffiti/incidents", { method: "POST", body: fd });
+      // the tag is saved: now add the other photos one by one (a failure here never loses the report)
+      const extras = reporting ? reportFiles.slice(1) : [];
+      let photos: IncidentPhoto[] = [];
+      let missed = 0;
+      for (const f of extras) {
+        try {
+          const up = new FormData();
+          up.set("photo", await shrinkPhoto(f), "photo.jpg");
+          photos = (await apiJson<{ photos: IncidentPhoto[] }>(`/api/graffiti/incidents/${incident.id}/photos`, { method: "POST", body: up })).photos;
+        } catch {
+          missed++;
+        }
+      }
       resetForm();
-      onCreated(incident);
-      toast(reporting ? "Reported. The crew can see it now." : "Saved");
+      onCreated({ ...incident, photos });
+      toast(
+        reporting
+          ? missed > 0
+            ? `Reported. ${missed} of ${extras.length} extra photo${extras.length === 1 ? "" : "s"} could not be added: open the tag to add ${missed === 1 ? "it" : "them"} again.`
+            : "Reported. The crew can see it now."
+          : "Saved",
+      );
     } catch (e) {
       toast(errMsg(e));
     } finally {
@@ -1193,7 +1237,7 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
             </span>
           </label>
 
-          <span className={styles.lbl}>Photo of the tag (recommended)</span>
+          <span className={styles.lbl}>Photos of the tag (recommended)</span>
           <label className={`${styles.photobtn} ${styles.reportPhoto} ${locked ? styles.locked : ""}`}>
             <input
               type="file"
@@ -1204,21 +1248,42 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
                 if (blockIfLocked()) e.preventDefault();
               }}
               onChange={(e) => {
-                const f = e.target.files?.[0];
+                const files = filesOf(e.target);
                 e.target.value = "";
-                if (f && !blockIfLocked()) setReportFile(f);
+                addReportFiles(files);
               }}
             />
-            {reportFile ? "Retake photo" : "Take photo of the tag"}
+            {reportFiles.length ? "Take another photo" : "Take photo of the tag"}
             <small>Helps whoever removes it find and prepare for it</small>
           </label>
-          {reportPreview && (
-            <div className={styles.reportPreview}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={reportPreview} alt="Photo of the tag" />
-              <button type="button" className={styles.linkbtn} onClick={() => setReportFile(null)}>
-                Remove photo
-              </button>
+          <label className={`${styles.addBtn} ${locked ? styles.locked : ""}`}>
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              data-testid="report-library"
+              onClick={(e) => {
+                if (blockIfLocked()) e.preventDefault();
+              }}
+              onChange={(e) => {
+                const files = filesOf(e.target);
+                e.target.value = "";
+                addReportFiles(files);
+              }}
+            />
+            Choose photos from your phone
+          </label>
+          {reportPreviews.length > 0 && (
+            <div className={styles.photoGrid} data-testid="report-previews">
+              {reportPreviews.map((u, n) => (
+                <figure key={u}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={u} alt={n === 0 ? "Photo of the tag" : `Photo ${n + 1} of the tag`} />
+                  <button type="button" className={styles.photoX} aria-label={`Remove photo ${n + 1}`} onClick={() => setReportFiles((prev) => prev.filter((_, k) => k !== n))}>
+                    ×
+                  </button>
+                </figure>
+              ))}
             </div>
           )}
 
@@ -1339,19 +1404,149 @@ export function PhotoButton({
   );
 }
 
+/** The photos beyond as reported / before / after: see them all, add several at once, add more any time, remove your own. */
+function MorePhotos({
+  inc,
+  isOwner,
+  toast,
+  onPhotos,
+}: {
+  inc: Incident;
+  isOwner: boolean;
+  toast: Toast;
+  onPhotos: (id: number, photos: IncidentPhoto[]) => void;
+}) {
+  const photos = inc.photos ?? [];
+  const room = MAX_EXTRA_PHOTOS - photos.length;
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [removing, setRemoving] = useState<number | null>(null);
+
+  async function add(files: File[]) {
+    if (files.length === 0 || progress) return;
+    const take = files.slice(0, Math.max(0, room));
+    if (take.length === 0) return toast(`This tag already has ${MAX_EXTRA_PHOTOS} extra photos (the most it can hold).`);
+    let added = 0;
+    let unreadable = 0;
+    let stopped = "";
+    setProgress({ done: 0, total: take.length });
+    for (let i = 0; i < take.length; i++) {
+      let blob: Blob;
+      try {
+        blob = await shrinkPhoto(take[i]);
+      } catch {
+        unreadable++; // this phone can't read that picture: skip it and carry on with the rest
+        setProgress({ done: i + 1, total: take.length });
+        continue;
+      }
+      try {
+        const fd = new FormData();
+        fd.set("photo", blob, "photo.jpg");
+        const res = await apiJson<{ photos: IncidentPhoto[] }>(`/api/graffiti/incidents/${inc.id}/photos`, { method: "POST", body: fd });
+        onPhotos(inc.id, res.photos);
+        added++;
+      } catch (e) {
+        stopped = errMsg(e); // no signal or a server problem: stop here so nothing is silently lost
+        break;
+      }
+      setProgress({ done: i + 1, total: take.length });
+    }
+    setProgress(null);
+    const left = take.length - added - unreadable;
+    const parts: string[] = [];
+    if (stopped) parts.push(`Added ${added} of ${take.length}.`);
+    else if (added) parts.push(added === 1 ? "Photo added." : `${added} photos added.`);
+    if (unreadable) parts.push(`${unreadable} could not be read on this phone.`);
+    if (stopped) parts.push(`${stopped} Choose the other ${left} again.`);
+    if (files.length > take.length) parts.push(`Only room for ${take.length} more (${MAX_EXTRA_PHOTOS} per tag).`);
+    toast(parts.join(" "));
+  }
+
+  async function remove(p: IncidentPhoto) {
+    if (!window.confirm("Remove this photo? This cannot be undone.")) return;
+    setRemoving(p.id);
+    try {
+      const res = await apiJson<{ photos: IncidentPhoto[] }>(`/api/graffiti/incidents/${inc.id}/photos/${p.id}`, { method: "DELETE" });
+      onPhotos(inc.id, res.photos);
+      toast("Photo removed");
+    } catch (e) {
+      toast(errMsg(e));
+    } finally {
+      setRemoving(null);
+    }
+  }
+
+  const busy = progress !== null;
+  const pick = (e: ChangeEvent<HTMLInputElement>) => {
+    const files = filesOf(e.target);
+    e.target.value = "";
+    void add(files);
+  };
+  return (
+    <div className={styles.morePhotos} data-testid="more-photos">
+      <span className={styles.lbl}>More photos{photos.length ? ` (${photos.length})` : ""}</span>
+      {photos.length > 0 && (
+        <div className={styles.photoGrid}>
+          {photos.map((p) => {
+            const u = photoUrl(p.name);
+            return (
+              <figure key={p.id} data-testid="more-photo">
+                {u && (
+                  <a href={u} target="_blank" rel="noopener noreferrer">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={u} alt={`Extra photo by ${p.by ?? "crew"}`} loading="lazy" />
+                  </a>
+                )}
+                {(p.mine || isOwner) && (
+                  <button type="button" className={styles.photoX} aria-label="Remove this photo" data-testid="remove-photo" disabled={removing === p.id} onClick={() => void remove(p)}>
+                    ×
+                  </button>
+                )}
+                <figcaption>{`${p.by ?? "Crew"} · ${fmtDate(p.at)} ${fmtTime(p.at)}`}</figcaption>
+              </figure>
+            );
+          })}
+        </div>
+      )}
+      {room > 0 ? (
+        <div className={styles.row} style={{ marginTop: photos.length ? 10 : 4 }}>
+          <label className={`${styles.addBtn} ${busy ? styles.busy : ""}`}>
+            <input type="file" accept="image/*" capture="environment" data-testid="add-photo-camera" disabled={busy} onChange={pick} />
+            Take photo
+          </label>
+          <label className={`${styles.addBtn} ${busy ? styles.busy : ""}`}>
+            <input type="file" accept="image/*" multiple data-testid="add-photos" disabled={busy} onChange={pick} />
+            Choose photos
+          </label>
+        </div>
+      ) : (
+        <div className={styles.hint}>This tag has the most extra photos it can hold ({MAX_EXTRA_PHOTOS}).</div>
+      )}
+      {progress && (
+        <div className={styles.hint} role="status" data-testid="photo-progress">
+          Uploading {Math.min(progress.done + 1, progress.total)} of {progress.total}…
+        </div>
+      )}
+    </div>
+  );
+}
+
 function IncidentSheet({
   inc,
   canDelete,
+  isOwner,
   toast,
   onClose,
   onSaved,
+  onPhotos,
   onDeleted,
 }: {
   inc: Incident;
   canDelete: boolean;
+  isOwner: boolean;
   toast: Toast;
   onClose: () => void;
   onSaved: (inc: Incident) => void;
+  onPhotos: (id: number, photos: IncidentPhoto[]) => void;
   onDeleted: (id: number) => void;
 }) {
   const [addr, setAddr] = useState(inc.address ?? "");
@@ -1466,6 +1661,8 @@ function IncidentSheet({
           <PhotoFig label="Before" name={inc.before_photo} />
           <PhotoFig label="After" name={inc.after_photo} />
         </div>
+
+        <MorePhotos inc={inc} isOwner={isOwner} toast={toast} onPhotos={onPhotos} />
 
         {(inc.status === "reported" || inc.status === "scheduled") && (
           <div className={styles.claimBox} data-testid="claim-box">

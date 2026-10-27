@@ -55,6 +55,8 @@ export const CHEMICAL_OPTIONS = ["SSR", "Bare brick", "Paint over", "Razor", "Ot
 
 export const MAX_MINUTES = 1440;
 export const MAX_PHOTO_BYTES = 4 * 1024 * 1024;
+/** Extra photos (beyond as reported / before / after) one tag may hold. */
+export const MAX_EXTRA_PHOTOS = 30;
 export const PHOTO_NAME_RE = /^[a-f0-9]{32}\.jpg$/;
 
 export function isStatus(v: unknown): v is GraffitiStatus {
@@ -81,6 +83,17 @@ export function typeText(v: string | null | undefined, other?: string | null): s
 }
 
 // ---------- Types ----------
+
+/** An extra photo on a tag (any time, any status). The account id never leaves the server. */
+export type IncidentPhoto = {
+  id: number;
+  name: string;
+  /** when it was added (ISO) */
+  at: string;
+  by: string | null;
+  /** added by the person looking at it (they may remove it) */
+  mine: boolean;
+};
 
 /** One logged tag, as the browser sees it. */
 export type Incident = {
@@ -115,6 +128,8 @@ export type Incident = {
   gtype_other?: string | null;
   /** Whoever finished (or took) the job: the account that gets the credit on the invoice. */
   removed_by_name: string | null;
+  /** Extra photos added to the tag (oldest first). Missing = none. */
+  photos?: IncidentPhoto[];
 };
 
 /** Form fields that were actually sent (a key is present even if its value is ""). */

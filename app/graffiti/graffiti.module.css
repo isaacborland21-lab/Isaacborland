@@ -642,3 +642,55 @@
 .pick input[type="text"] {
   margin-top: 6px;
 }
+
+/* extra photos on a tag */
+.morePhotos { margin-top: 14px; }
+.photoGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.photoGrid figure { margin: 0; position: relative; }
+.photoGrid img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  display: block;
+}
+.photoGrid figcaption { font-size: 11px; color: var(--text-dim); margin-top: 2px; overflow-wrap: anywhere; }
+.photoX {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+.photoX:disabled { opacity: 0.5; }
+.addBtn {
+  display: block;
+  text-align: center;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  border: 1px solid var(--surface-border);
+  border-radius: 12px;
+  padding: 12px 8px;
+  margin-top: 8px;
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.addBtn input { display: none; }
+.addBtn.busy { opacity: 0.5; pointer-events: none; }
+.addBtn.locked { opacity: 0.55; }

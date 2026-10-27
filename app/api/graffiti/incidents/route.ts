@@ -6,6 +6,7 @@ import {
   fail,
   INCIDENT_COLS,
   isResponse,
+  loadPhotos,
   readInput,
   removePhotos,
   requireGraffiti,
@@ -36,8 +37,20 @@ export async function GET() {
 
   const rows = data ?? [];
   const truncated = rows.length > LIST_LIMIT;
+  const shown = rows.slice(0, LIST_LIMIT) as unknown as Record<string, unknown>[];
+  let photos: Awaited<ReturnType<typeof loadPhotos>>;
+  try {
+    photos = await loadPhotos(
+      db,
+      shown.map((r) => Number(r.id)),
+      who.userId,
+    );
+  } catch {
+    // the extra photos are a bonus: never take the whole list down over them
+    photos = new Map();
+  }
   return NextResponse.json(
-    { incidents: rows.slice(0, LIST_LIMIT).map((r: unknown) => toIncident(r as Record<string, unknown>, who.userId)), truncated },
+    { incidents: shown.map((r) => toIncident(r, who.userId, photos.get(Number(r.id)) ?? [])), truncated },
     { headers: { "Cache-Control": "no-store, must-revalidate" } },
   );
 }
