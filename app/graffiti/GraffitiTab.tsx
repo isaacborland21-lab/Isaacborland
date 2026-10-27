@@ -123,7 +123,7 @@ export default function GraffitiTab({ isOwner, canInvoice = isOwner }: { isOwner
   const toastTimer = useRef<number | undefined>(undefined);
 
   // "" = still to do, plus anything finished today (older finished tags drop off at midnight
-  // and show again with "Everything" or "Removed")
+  // and show again with "All" or "Removed"). Shown in the menu as "Today".
   const [fStatus, setFStatus] = useState("");
   const [fSearch, setFSearch] = useState("");
 
@@ -275,10 +275,9 @@ export default function GraffitiTab({ isOwner, canInvoice = isOwner }: { isOwner
       <section hidden={view !== "list"} aria-label="Incident list">
         <div className={styles.filters}>
           <select aria-label="Filter by status" value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
-            <option value="">To do + done today</option>
-            <option value="all">Everything (incl. finished)</option>
-            <option value="needs">Needs removal</option>
-            {GRAFFITI_STATUSES.map((s) => (
+            <option value="">Today</option>
+            <option value="all">All</option>
+            {GRAFFITI_STATUSES.filter((s) => s !== "scheduled").map((s) => (
               <option key={s} value={s}>
                 {STATUS_LABEL[s]}
               </option>
