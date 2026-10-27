@@ -76,19 +76,24 @@ export function isResponse<T>(v: T | NextResponse): v is NextResponse {
   return v instanceof Response;
 }
 
-/** Reads fields (and an optional photo) from a multipart form or a JSON body. */
-export async function readInput(request: Request): Promise<{ fields: Fields; photo: File | null } | NextResponse> {
+/**
+ * Reads fields (and an optional photo) from a multipart form or a JSON body.
+ * `after` is a second photo, only used when logging a job that is already finished (photo = its before photo).
+ */
+export async function readInput(request: Request): Promise<{ fields: Fields; photo: File | null; after: File | null } | NextResponse> {
   const type = request.headers.get("content-type") ?? "";
   try {
     if (type.includes("multipart/form-data")) {
       const form = await request.formData();
       const fields: Fields = {};
       let photo: File | null = null;
+      let after: File | null = null;
       for (const [k, v] of form.entries()) {
         if (typeof v === "string") fields[k] = v;
         else if (k === "photo" && v.size > 0) photo = v;
+        else if (k === "after" && v.size > 0) after = v;
       }
-      return { fields, photo };
+      return { fields, photo, after };
     }
     const body = await request.json();
     if (body === null || typeof body !== "object" || Array.isArray(body)) return fail("Invalid body.", 400);
@@ -98,7 +103,7 @@ export async function readInput(request: Request): Promise<{ fields: Fields; pho
       else if (typeof v === "number" || typeof v === "boolean") fields[k] = String(v);
       else if (v === null) fields[k] = "";
     }
-    return { fields, photo: null };
+    return { fields, photo: null, after: null };
   } catch {
     return fail("Invalid request body.", 400);
   }

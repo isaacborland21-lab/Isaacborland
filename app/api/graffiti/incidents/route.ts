@@ -77,6 +77,21 @@ export async function POST(request: Request) {
     if (!up.ok) return fail(up.error, 500);
     photoName = up.name;
   }
+  // a job logged as already finished can bring its after photo too (photo = the before photo)
+  let afterName: string | null = null;
+  if (input.after && input.fields.mode === "done") {
+    const checked = await checkPhoto(input.after);
+    if (!checked.ok) {
+      await removePhotos(db, [photoName]);
+      return fail(checked.error, 400);
+    }
+    const up = await uploadPhoto(db, checked.bytes);
+    if (!up.ok) {
+      await removePhotos(db, [photoName]);
+      return fail(up.error, 500);
+    }
+    afterName = up.name;
+  }
 
   const { data, error } = await db
     .from("graffiti_incidents")
@@ -84,7 +99,7 @@ export async function POST(request: Request) {
       ...made.row,
       ...(input.fields.mode === "report" || (input.fields.mode !== "start" && input.fields.mode !== "done")
         ? { report_photo: photoName }
-        : { before_photo: photoName }),
+        : { before_photo: photoName, ...(afterName ? { after_photo: afterName } : {}) }),
       reported_by_name: who.name,
       // starting a job yourself means you have taken it
       ...(made.row.status === "in_progress" ? { claimed_by: who.userId, claimed_by_name: who.name } : {}),
@@ -95,7 +110,7 @@ export async function POST(request: Request) {
     .select(INCIDENT_COLS)
     .single();
   if (error || !data) {
-    await removePhotos(db, [photoName]);
+    await removePhotos(db, [photoName, afterName]);
     return fail(error?.message ?? "Could not save the incident.", 500);
   }
   return NextResponse.json({ incident: toIncident(data as unknown as Record<string, unknown>, who.userId) }, { status: 201 });
