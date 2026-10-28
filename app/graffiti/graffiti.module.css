@@ -694,3 +694,5 @@
 .addBtn input { display: none; }
 .addBtn.busy { opacity: 0.5; pointer-events: none; }
 .addBtn.locked { opacity: 0.55; }
+.chosenPreview { display: flex; align-items: center; gap: 14px; margin-top: 8px; }
+.chosenPreview img { width: 96px; height: 96px; object-fit: cover; border-radius: 10px; display: block; flex: none; }

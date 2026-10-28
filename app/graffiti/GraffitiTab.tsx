@@ -763,6 +763,62 @@ function ChoiceBoxes({
   );
 }
 
+/** A photo already on the phone (camera roll) or taken now, for a job that is already finished. Preview and remove included. */
+function ChosenPhoto({
+  label,
+  testId,
+  file,
+  onFile,
+  blockIfLocked,
+}: {
+  label: string;
+  testId: string;
+  file: File | null;
+  onFile: (f: File | null) => void;
+  blockIfLocked: () => boolean;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!file) {
+      setUrl(null);
+      return;
+    }
+    const u = URL.createObjectURL(file);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [file]);
+  return (
+    <div data-testid={`${testId}-box`} style={{ marginTop: 14 }}>
+      <span className={styles.lbl}>{label}</span>
+      <label className={styles.addBtn}>
+        <input
+          type="file"
+          accept="image/*"
+          data-testid={testId}
+          onClick={(e) => {
+            if (blockIfLocked()) e.preventDefault();
+          }}
+          onChange={(e) => {
+            const f = e.target.files?.[0] ?? null;
+            e.target.value = "";
+            if (f && !blockIfLocked()) onFile(f);
+          }}
+        />
+        {file ? "Choose a different photo" : "Choose or take photo"}
+      </label>
+      {url && (
+        <div className={styles.chosenPreview}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={url} alt={label} />
+          <button type="button" className={styles.linkbtn} onClick={() => onFile(null)}>
+            Remove photo
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; onCreated: (inc: Incident) => void }) {
   const [address, setAddressState] = useState("");
   const [description, setDescription] = useState("");
@@ -774,6 +830,9 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
   // photos of the tag when reporting: the first is the "as reported" photo, any more are added to the tag after it is saved
   const [reportFiles, setReportFiles] = useState<File[]>([]);
   const [reportPreviews, setReportPreviews] = useState<string[]>([]);
+  // "Already finished" log: the before and after photos, if the crew has them
+  const [doneBefore, setDoneBefore] = useState<File | null>(null);
+  const [doneAfter, setDoneAfter] = useState<File | null>(null);
   const [urgent, setUrgent] = useState(false);
   const [surface, setSurface] = useState("");
   const [chemical, setChemical] = useState("");
@@ -986,6 +1045,8 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
     setDescription("");
     setMinutes("");
     setReportFiles([]);
+    setDoneBefore(null);
+    setDoneAfter(null);
     setUrgent(false);
     setSurface("");
     setGtypeOther("");
@@ -1072,6 +1133,8 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
         if (reportFiles[0]) fd.set("photo", await shrinkPhoto(reportFiles[0]), "report.jpg");
       } else {
         fd.set("duration_min", minutes);
+        if (doneBefore) fd.set("photo", await shrinkPhoto(doneBefore), "before.jpg");
+        if (doneAfter) fd.set("after", await shrinkPhoto(doneAfter), "after.jpg");
       }
       const { incident } = await apiJson<{ incident: Incident }>("/api/graffiti/incidents", { method: "POST", body: fd });
       // the tag is saved: now add the other photos one by one (a failure here never loses the report)
@@ -1328,6 +1391,9 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
               value={minutes}
               onChange={(e) => setMinutes(e.target.value)}
             />
+            <ChosenPhoto label="Before photo (optional)" testId="done-before" file={doneBefore} onFile={setDoneBefore} blockIfLocked={blockIfLocked} />
+            <ChosenPhoto label="After photo (optional)" testId="done-after" file={doneAfter} onFile={setDoneAfter} blockIfLocked={blockIfLocked} />
+            <div className={styles.hint}>The time on site is the minutes you type. Photos here are only attached to the tag; they don't set the time.</div>
             <button type="submit" className={`${styles.btn} ${styles.sec} ${styles.block}`} style={{ marginTop: 12 }} disabled={saving}>
               {saving ? "Saving..." : "Save completed job"}
             </button>
