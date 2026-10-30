@@ -191,3 +191,10 @@ export function crewColor(name: string | null | undefined): string {
 
 /** How long patrol tracks are kept before they are deleted. */
 export const KEEP_DAYS = 90;
+
+/**
+ * Patrolling (the "Start patrolling" switch, drive routes on the map and the Coverage link) is paused for now.
+ * Nothing is deleted: the code, the API and the saved tracks stay as they are. To bring it back, set the
+ * environment variable NEXT_PUBLIC_PATROL=on (Vercel -> Settings -> Environment Variables) and redeploy.
+ */
+export const PATROL_ENABLED = process.env.NEXT_PUBLIC_PATROL === "on";

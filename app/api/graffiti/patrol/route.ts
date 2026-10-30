@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { autoCity, isDate, localDate } from "@/lib/graffiti";
 import { fail, fetchAll, isResponse, loadSettings, requireGraffiti } from "@/lib/graffitiServer";
-import { PatrolPoint, cellCity, cellsVisited, cleanPoint, crewColor, toLines } from "@/lib/patrol";
+import { PATROL_ENABLED, PatrolPoint, cellCity, cellsVisited, cleanPoint, crewColor, toLines } from "@/lib/patrol";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -18,6 +18,8 @@ type Row = { user_name: string | null; user_id: string; session: string; lat: nu
 export async function POST(request: Request) {
   const who = await requireGraffiti();
   if (isResponse(who)) return who;
+  // paused: a phone still running an old copy of the page must not keep sending its location
+  if (!PATROL_ENABLED) return fail("Patrolling is switched off for now.", 403);
   let body: Record<string, unknown>;
   try {
     const b = await request.json();
