@@ -870,6 +870,18 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
   const pickMap = useRef<any>(null);
   const quiet = useRef(false); // true while WE move the little map, so that move is not mistaken for the crew dragging it
 
+  // leaving the Log tab without saving also clears the three pick-boxes, so the next tag never starts from a
+  // half-filled choice. (Not tied to the page being hidden: opening the camera hides the page on some phones.)
+  useEffect(() => {
+    if (active) return;
+    setSurface("");
+    setChemical("");
+    setGtype("slap");
+    setGtypeOther("");
+    setShowErr(false);
+    setFormKey((k) => k + 1);
+  }, [active]);
+
   // small previews of the report photos
   useEffect(() => {
     const urls = reportFiles.map((f) => URL.createObjectURL(f));
