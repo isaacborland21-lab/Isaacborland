@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ChangeEvent, FormEvent } from "react";
+import type { ChangeEvent, FormEvent, MouseEvent } from "react";
 import styles from "./graffiti.module.css";
 import {
   CHEMICAL_OPTIONS,
@@ -1347,10 +1347,22 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
             Take before photo
             <small>{locked ? "Fill in the details above first" : "Saves the job and starts the timer"}</small>
           </label>
+          <label className={`${styles.addBtn} ${busy ? styles.busy : ""} ${locked ? styles.locked : ""}`}>
+            <input
+              type="file"
+              accept="image/*"
+              data-testid="before-library"
+              onClick={(e) => {
+                if (blockIfLocked()) e.preventDefault();
+              }}
+              onChange={onBeforePhoto}
+            />
+            Or choose a photo from your phone
+          </label>
           <div className={styles.hint} data-testid="detail-hint">
             {locked
               ? `Needed before the photo: ${lacking.join(", ")}.`
-              : "The clock starts the moment the photo is taken. You can fix details afterwards on the job."}
+              : "The clock starts the moment the photo is added. You can fix details afterwards on the job."}
           </div>
 
           <details className={styles.details} open={otherOpen} onToggle={(e) => setOtherOpen((e.currentTarget as HTMLDetailsElement).open)}>
@@ -1420,30 +1432,32 @@ export function PhotoButton({
   onBlocked?: () => void;
   onPhoto: (f: File, at: number) => void;
 }) {
+  function chosen(e: ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f) return;
+    if (locked) return onBlocked?.();
+    // the timer uses the moment the photo is handed over, whether it was just taken or picked from the phone
+    onPhoto(f, Date.now());
+  }
+  const guard = (e: MouseEvent<HTMLInputElement>) => {
+    if (locked) {
+      e.preventDefault();
+      onBlocked?.();
+    }
+  };
   return (
-    <label className={`${styles.photobtn} ${go ? styles.go : ""} ${disabled ? styles.busy : ""} ${locked ? styles.locked : ""}`}>
-      <input
-        type="file"
-        accept="image/*"
-        capture="environment"
-        data-testid={go ? "after-input" : "start-input"}
-        onClick={(e) => {
-          if (locked) {
-            e.preventDefault();
-            onBlocked?.();
-          }
-        }}
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          e.target.value = "";
-          if (!f) return;
-          if (locked) return onBlocked?.();
-          onPhoto(f, Date.now());
-        }}
-      />
-      {text}
-      <small>{sub}</small>
-    </label>
+    <>
+      <label className={`${styles.photobtn} ${go ? styles.go : ""} ${disabled ? styles.busy : ""} ${locked ? styles.locked : ""}`}>
+        <input type="file" accept="image/*" capture="environment" data-testid={go ? "after-input" : "start-input"} onClick={guard} onChange={chosen} />
+        {text}
+        <small>{sub}</small>
+      </label>
+      <label className={`${styles.addBtn} ${disabled ? styles.busy : ""} ${locked ? styles.locked : ""}`}>
+        <input type="file" accept="image/*" data-testid={go ? "after-library" : "start-library"} onClick={guard} onChange={chosen} />
+        Or choose a photo from your phone
+      </label>
+    </>
   );
 }
 
@@ -1791,6 +1805,18 @@ function IncidentSheet({
               accept="image/*"
               capture="environment"
               data-testid="replace-after"
+              disabled={busy}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) void save({ photo_kind: "after" }, f, "Photo replaced");
+              }}
+            />
+            <span className={styles.lbl}>...or choose one from your phone</span>
+            <input
+              type="file"
+              accept="image/*"
+              data-testid="replace-after-library"
               disabled={busy}
               onChange={(e) => {
                 const f = e.target.files?.[0];
