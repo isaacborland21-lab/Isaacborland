@@ -34,7 +34,7 @@ import {
   shrinkPhoto,
 } from "./clientUtil";
 import PatrolBar from "./PatrolBar";
-import { crewColor } from "@/lib/patrol";
+import { PATROL_ENABLED, crewColor } from "@/lib/patrol";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -228,7 +228,7 @@ export default function GraffitiTab({ isOwner, canInvoice = isOwner }: { isOwner
     <div className={styles.root}>
       <div className={styles.head}>
         <h2 className={styles.title}>Graffiti removal tracker</h2>
-        {isOwner && (
+        {PATROL_ENABLED && isOwner && (
           <a className={styles.headLink} href="/graffiti/coverage" data-testid="coverage-link">
             Coverage →
           </a>
@@ -240,7 +240,7 @@ export default function GraffitiTab({ isOwner, canInvoice = isOwner }: { isOwner
         )}
       </div>
 
-      <PatrolBar />
+      {PATROL_ENABLED && <PatrolBar />}
 
       <div className={styles.stats}>
         <div className={`${styles.chip} ${styles.cReported}`}>
@@ -431,7 +431,7 @@ function MapView({ incidents, active, onOpen }: { incidents: Incident[]; active:
   // only tags worked on recently ("" = any time), so a crew can see where others have been today / this week
   const [since, setSince] = useState<"" | "today" | "7" | "30">("");
   const [colorBy, setColorBy] = useState<"status" | "crew">("status");
-  const [showRoutes, setShowRoutes] = useState(true);
+  const [showRoutes, setShowRoutes] = useState(PATROL_ENABLED);
   const [routes, setRoutes] = useState<Routes | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -569,10 +569,12 @@ function MapView({ incidents, active, onOpen }: { incidents: Incident[]; active:
           <option value="crew">Color: who did it</option>
         </select>
       </div>
-      <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 14, margin: "0 0 8px" }}>
-        <input type="checkbox" checked={showRoutes} onChange={(e) => setShowRoutes(e.target.checked)} data-testid="map-routes" /> Show where crews have driven
-        today
-      </label>
+      {PATROL_ENABLED && (
+        <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 14, margin: "0 0 8px" }}>
+          <input type="checkbox" checked={showRoutes} onChange={(e) => setShowRoutes(e.target.checked)} data-testid="map-routes" /> Show where crews have driven
+          today
+        </label>
+      )}
       <div ref={box} className={styles.map} data-testid="map">
         {err && <div className={styles.mapErr}>{err}</div>}
       </div>
@@ -833,7 +835,6 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
   // "Already finished" log: the before and after photos, if the crew has them
   const [doneBefore, setDoneBefore] = useState<File | null>(null);
   const [doneAfter, setDoneAfter] = useState<File | null>(null);
-  const [urgent, setUrgent] = useState(false);
   const [surface, setSurface] = useState("");
   const [chemical, setChemical] = useState("");
   const [showErr, setShowErr] = useState(false); // outline the blank required details after a blocked photo
@@ -1047,7 +1048,6 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
     setReportFiles([]);
     setDoneBefore(null);
     setDoneAfter(null);
-    setUrgent(false);
     setSurface("");
     setGtypeOther("");
     setShowErr(false);
@@ -1129,7 +1129,6 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
       fd.set("surface", surface);
       if (!reporting) fd.set("chemical", chemical);
       if (reporting) {
-        if (urgent) fd.set("urgent", "1");
         if (reportFiles[0]) fd.set("photo", await shrinkPhoto(reportFiles[0]), "report.jpg");
       } else {
         fd.set("duration_min", minutes);
@@ -1292,14 +1291,6 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
 
       {intent === "report" ? (
         <Fragment key="report">
-          <label className={styles.urgent}>
-            <input type="checkbox" checked={urgent} onChange={(e) => setUrgent(e.target.checked)} data-testid="urgent-check" />
-            <span>
-              <b>Urgent</b>
-              <small>Offensive or very visible. Shows at the top for the crew.</small>
-            </span>
-          </label>
-
           <span className={styles.lbl}>Photos of the tag (recommended)</span>
           <label className={`${styles.photobtn} ${styles.reportPhoto} ${locked ? styles.locked : ""}`}>
             <input
@@ -1745,15 +1736,12 @@ function IncidentSheet({
                 {inc.claimed_by_name} took this. Take over
               </button>
             )}
-            <button
-              type="button"
-              className={styles.linkbtn}
-              disabled={busy}
-              data-testid="urgent-btn"
-              onClick={() => save({ urgent: inc.urgent ? "0" : "1" }, undefined, inc.urgent ? "Urgent flag removed" : "Marked urgent")}
-            >
-              {inc.urgent ? "Remove urgent flag" : "Mark urgent"}
-            </button>
+            {inc.urgent && (
+              // the Urgent option is gone; this only lets an old urgent flag be cleared
+              <button type="button" className={styles.linkbtn} disabled={busy} data-testid="urgent-btn" onClick={() => save({ urgent: "0" }, undefined, "Urgent flag removed")}>
+                Remove urgent flag
+              </button>
+            )}
             {!inc.report_photo && !inc.before_photo && (
               <>
                 <span className={styles.lbl}>Add a photo of the tag</span>

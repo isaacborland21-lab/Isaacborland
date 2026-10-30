@@ -62,6 +62,11 @@ from the main site; an account that has a job tab is not sent there.
 
 ## Patrolling and coverage (graffiti)
 
+> **Paused for now.** The "Start patrolling" bar, the drive routes on the crew map and the Coverage link are hidden, and
+> the server refuses new patrol points. Nothing was deleted: the code, the API and the saved tracks are all still here.
+> To bring it back, set the environment variable `NEXT_PUBLIC_PATROL=on` in Vercel (Settings → Environment Variables)
+> and redeploy. Everything below describes it when it is on.
+
 Crews who drive around looking for graffiti tap **Start patrolling** at the top of the graffiti tracker (crew page or main
 site). While it's on, the phone records a point about every 80 m driven and keeps the screen awake (screen wake lock), so
 the browser keeps getting GPS; nothing is recorded while it's off. Points queue on the phone and upload every 30 seconds,
@@ -116,13 +121,14 @@ taken. The owner prints a monthly invoice for the city from `/graffiti/invoice`.
 
 **Reporting and using it on several phones**
 
-- Anyone with the graffiti tab can **report** a tag (Log new → *Report it*): a photo
-  of the tag, an optional **Urgent** flag, and their name is recorded. Whoever
+- Anyone with the graffiti tab can **report** a tag (Log new → *Report it*): photos
+  of the tag and their name is recorded. (There is no Urgent flag any more: it was removed from
+  reporting, and the server ignores it. An old urgent tag can still be cleared.) Whoever
   removes it opens it from the list, taps **I'll take this** (so two people do
   not both drive out), then uses the normal before/after photos.
-- Everyone's list refreshes every 15 seconds and shows a toast for new reports
-  (urgent ones are called out). The **Reported** filter lists open reports,
-  urgent first. There are no push, text or email alerts, only what shows in the app.
+- Everyone's list refreshes every 15 seconds and shows a toast for new reports.
+  The **Reported** filter lists open reports. There are no push, text or email
+  alerts, only what shows in the app.
 - Someone else can take over a claimed job; only the person who took it (or the
   owner) can give it back.
 - Existing installs: re-run `supabase/graffiti.sql`. It adds the new columns and is safe to re-run.

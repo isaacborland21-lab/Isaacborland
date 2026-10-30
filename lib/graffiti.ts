@@ -272,7 +272,7 @@ export function computeCreate(fields: Fields, nowMs: number): Ok<{ row: NewIncid
       finished_at: finished,
       removed_at: removed,
       duration_min: duration,
-      urgent: flag(fields.urgent),
+      urgent: false, // the Urgent option was removed from reporting; a new tag is never urgent
       surface: clean(fields.surface, 80),
       chemical: clean(fields.chemical, 80),
     },
@@ -410,7 +410,8 @@ export function computeUpdate(
     patch.scheduled_for = d === "" ? null : d;
   }
 
-  if (has("urgent")) patch.urgent = flag(fields.urgent);
+  // the Urgent option was removed: an old urgent flag can still be cleared, but nothing can be marked urgent
+  if (has("urgent") && !flag(fields.urgent)) patch.urgent = false;
   if (has("surface")) patch.surface = clean(fields.surface, 80);
   if (has("chemical")) patch.chemical = clean(fields.chemical, 80);
   if (has("claim")) {
