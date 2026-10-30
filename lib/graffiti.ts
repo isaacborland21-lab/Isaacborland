@@ -51,7 +51,7 @@ export const SURFACE_OPTIONS = [
   "Building wall",
   "Other",
 ];
-export const CHEMICAL_OPTIONS = ["SSR", "Bare brick", "Paint over", "Razor", "Other"];
+export const CHEMICAL_OPTIONS = ["SSR", "Bare brick", "Razor", "Other"];
 
 export const MAX_MINUTES = 1440;
 export const MAX_PHOTO_BYTES = 4 * 1024 * 1024;
