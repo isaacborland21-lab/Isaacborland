@@ -78,21 +78,6 @@ export function Elapsed({ start, className }: { start: string; className?: strin
   );
 }
 
-const readStore = (k: string) => {
-  try {
-    return window.localStorage.getItem(k);
-  } catch {
-    return null;
-  }
-};
-const writeStore = (k: string, v: string) => {
-  try {
-    window.localStorage.setItem(k, v);
-  } catch {
-    /* private mode etc.: not important */
-  }
-};
-
 type Toast = (msg: string) => void;
 /** The files chosen in a file input, as a plain list (read them before the input is reset). */
 function filesOf(input: HTMLInputElement): File[] {
@@ -885,14 +870,6 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
   const pickMap = useRef<any>(null);
   const quiet = useRef(false); // true while WE move the little map, so that move is not mistaken for the crew dragging it
 
-  // remember the last tag type
-  useEffect(() => {
-    const t = readStore("gt_type");
-    if (t && (GRAFFITI_TYPES as readonly string[]).includes(t)) setGtype(t as GraffitiType);
-    const c = readStore("gt_chem");
-    if (c) setChemical(c);
-  }, []);
-
   // small previews of the report photos
   useEffect(() => {
     const urls = reportFiles.map((f) => URL.createObjectURL(f));
@@ -1048,7 +1025,10 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
     setReportFiles([]);
     setDoneBefore(null);
     setDoneAfter(null);
+    // nothing is remembered between tags: every new tag starts from the same blank form
     setSurface("");
+    setChemical("");
+    setGtype("slap");
     setGtypeOther("");
     setShowErr(false);
     setFormKey((k) => k + 1);
@@ -1240,10 +1220,7 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
               name="gtype"
               value={t}
               checked={gtype === t}
-              onChange={() => {
-                setGtype(t);
-                writeStore("gt_type", t);
-              }}
+              onChange={() => setGtype(t)}
             />
             <span>{TYPE_NAMES[t]}</span>
           </label>
@@ -1270,10 +1247,7 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
             required
             invalid={showErr && !chemical.trim()}
             value={chemical}
-            onChange={(v) => {
-              setChemical(v);
-              writeStore("gt_chem", v);
-            }}
+            onChange={setChemical}
           />
         )}
       </div>

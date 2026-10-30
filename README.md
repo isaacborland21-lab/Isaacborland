@@ -161,7 +161,7 @@ taken. The owner prints a monthly invoice for the city from `/graffiti/invoice`.
   else whoever reported/logged it), using the name on their login. The on-screen
   invoice and the CSV group by that person with a subtotal each.
 - The crew record the **type of tag** (Slap tag, Chalk pen, Sharpie, Spray paint, Other), **what it is on** and the
-  **chemical used** (boxes: SSR, Bare brick, Paint over, Razor, Other). Choosing *Other* on the tag type, what it's on or the chemical opens a box to type it in. They are in the CSV, and the tag type fills the sheet's *Graffiti type* column
+  **chemical used** (boxes: SSR, Bare brick, Razor, Other; paint-over jobs use *Other* and type it in). Choosing *Other* on the tag type, what it's on or the chemical opens a box to type it in. They are in the CSV, and the tag type fills the sheet's *Graffiti type* column
   (so the line reads "Graffiti Removal at Main St, Slap tag on Electrical box").
 - Invoice page → *Google Sheets invoice*: upload your own invoice sheet **once**
   (Google Sheets → File → Download → Microsoft Excel .xlsx). It is kept in the
