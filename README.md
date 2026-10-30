@@ -150,8 +150,11 @@ taken. The owner prints a monthly invoice for the city from `/graffiti/invoice`.
 - **Logging a tag that is already finished** (Log new → *Already finished? Log it without the timer*):
   you can attach its **before** and **after** photos, chosen from the phone's photos or taken on the
   spot. They are only attached to the tag; the time on site is still the minutes you type (a picked
-  photo's time can't be trusted, so it never sets the time). The normal *Take before photo* button
-  still uses the camera only, because it starts the timer at the moment the photo is taken.
+  photo's time can't be trusted, so it never sets the time).
+- **Removing a tag**: *Take before photo* / *Take after photo* open the camera, and an **Or choose a
+  photo from your phone** button sits under each (also *Replace after photo* on a finished tag). Either
+  way the timer uses the moment the photo is **handed to the site**, not when it was originally taken, so
+  a picked photo starts or stops the clock *now* (the time never goes backwards).
 - Setup: re-run `supabase/graffiti.sql` (adds the `graffiti_photos` table). Until it is run the tag
   list still works; only the extra photos are missing and adding one reports an error.
 
