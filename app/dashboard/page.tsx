@@ -33,6 +33,12 @@ const RELOAD_EVERY_MS = 6 * 60 * 60 * 1000;
 const NIGHT_START = 23; // 11 pm
 const NIGHT_END = 6; // 6 am
 
+// Reminders are switched off for now (2026-10-31). The panel, its toolbar
+// button, its settings dialog and its polling are all gated on this one
+// flag, and the /api/reminders routes are left exactly as they were — flip
+// it back to true to bring the whole thing back.
+const SHOW_REMINDERS = false;
+
 // ---------------- Types ----------------
 
 type CalEvent = {
@@ -322,6 +328,132 @@ function useTicker(everyMs: number) {
   return now;
 }
 
+// ---------------- Halloween decor ----------------
+// Hand-drawn inline SVG and CSS only (no images, no libraries). Everything
+// here is aria-hidden and pointer-events: none, so it can never get in the
+// way of the board. The palette itself (purple, pumpkin orange, slime green)
+// is set on .root in the CSS module, which also recolors the shared living
+// background, so the whole page changes together.
+
+function Pumpkin({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 100 92" aria-hidden="true">
+      <ellipse cx="27" cy="55" rx="22" ry="31" fill="#d9560c" />
+      <ellipse cx="73" cy="55" rx="22" ry="31" fill="#d9560c" />
+      <ellipse cx="40" cy="55" rx="21" ry="34" fill="#ef7414" />
+      <ellipse cx="60" cy="55" rx="21" ry="34" fill="#ef7414" />
+      <ellipse cx="50" cy="55" rx="17" ry="35" fill="#ff8f2a" />
+      <path d="M39 22C33 38 33 72 39 88M61 22C67 38 67 72 61 88" stroke="#a8420a" strokeOpacity="0.55" strokeWidth="1.4" fill="none" />
+      <path d="M45 21C45 12 50 7 58 4L61 11C56 13 55 17 56 22Z" fill="#55721f" />
+      <g fill="#ffe27a">
+        <path d="M35 39L44 53H26Z" />
+        <path d="M65 39L74 53H56Z" />
+        <path d="M50 55L45 62H55Z" />
+        <path d="M27 66H36L39 71L44 66H50L53 71L58 66H64L67 71L71 66H73Q70 83 50 84Q30 83 27 66Z" />
+      </g>
+    </svg>
+  );
+}
+
+function Bat({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 64 32" aria-hidden="true">
+      <path
+        d="M32 10L35 5L36 11C42 6 52 4 62 9C57 11 56 15 55 20C52 17 48 17 45 21C43 18 40 18 38 22C36 20 34 21 32 26C30 21 28 20 26 22C24 18 21 18 19 21C16 17 12 17 9 20C8 15 7 11 2 9C12 4 22 6 28 11L29 5Z"
+        fill="#1a0b2e"
+        stroke="#7c4bc4"
+        strokeWidth="1"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function Ghost({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 60 72" aria-hidden="true">
+      <path
+        d="M30 4C14 4 6 16 6 32V64C6 68 9 68 11 65C14 61 17 61 20 65C23 69 26 69 30 65C34 69 37 69 40 65C43 61 46 61 49 65C51 68 54 68 54 64V32C54 16 46 4 30 4Z"
+        fill="#f4efff"
+      />
+      <ellipse cx="22" cy="30" rx="4" ry="6" fill="#1b0f2a" />
+      <ellipse cx="38" cy="30" rx="4" ry="6" fill="#1b0f2a" />
+      <ellipse cx="30" cy="45" rx="5" ry="7" fill="#1b0f2a" />
+    </svg>
+  );
+}
+
+function Spider({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
+      <g stroke="#8a63c9" strokeWidth="1.1" strokeLinecap="round" fill="none">
+        <path d="M9 12L3 8L2 11M9 14L2 14L1 18M10 16L5 21L4 23M10 10L5 4L7 2" />
+        <path d="M15 12L21 8L22 11M15 14L22 14L23 18M14 16L19 21L20 23M14 10L19 4L17 2" />
+      </g>
+      <circle cx="12" cy="15" r="5" fill="#2a1840" stroke="#8a63c9" strokeWidth="0.9" />
+      <circle cx="12" cy="9.5" r="3" fill="#2a1840" stroke="#8a63c9" strokeWidth="0.9" />
+      <circle cx="10.8" cy="9" r="0.8" fill="#ff4a3d" />
+      <circle cx="13.2" cy="9" r="0.8" fill="#ff4a3d" />
+    </svg>
+  );
+}
+
+// A web in the top-left corner; the right one is the same drawing mirrored in CSS.
+function Cobweb({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 100 100" aria-hidden="true">
+      <g stroke="rgba(255,255,255,0.34)" strokeWidth="1" fill="none" strokeLinecap="round">
+        <path d="M0 0H100M0 0L92 38M0 0L70 70M0 0L38 92M0 0V100" />
+        <path d="M30 0Q25.3 5 27.6 11.4Q21.4 14.3 21 21Q14.3 21.4 11.4 27.6Q5 25.3 0 30" />
+        <path d="M55 0Q46.5 9.2 50.6 20.9Q39.2 26.1 38.5 38.5Q26.1 39.2 20.9 50.6Q9.2 46.5 0 55" />
+        <path d="M80 0Q67.6 13.4 73.6 30.4Q57 38 56 56Q38 57 30.4 73.6Q13.4 67.6 0 80" />
+        <path d="M100 0Q84.5 16.7 92 38Q71.3 47.5 70 70Q47.5 71.3 38 92Q16.7 84.5 0 100" />
+      </g>
+    </svg>
+  );
+}
+
+// How the bats and the ghost cross the screen: where, how big, how often.
+const BATS = [
+  { top: "7vh", scale: 1, dur: 38, delay: -4 },
+  { top: "19vh", scale: 0.75, dur: 52, delay: -21 },
+  { top: "47vh", scale: 1.15, dur: 66, delay: -40 },
+];
+
+function HalloweenDecor() {
+  return (
+    <>
+      {/* Behind the board: moon glow and corner cobwebs. */}
+      <div className={styles.decorBack} aria-hidden="true">
+        <div className={styles.moon} />
+        <Cobweb className={`${styles.web} ${styles.webLeft}`} />
+        <Cobweb className={`${styles.web} ${styles.webRight}`} />
+      </div>
+      {/* In front of the board, but tiny and never clickable. */}
+      <div className={styles.decorFront} aria-hidden="true">
+        {BATS.map((b, i) => (
+          <div
+            key={i}
+            className={styles.batFly}
+            style={{ top: b.top, "--s": b.scale, "--dur": `${b.dur}s`, "--delay": `${b.delay}s` } as React.CSSProperties}
+          >
+            <Bat className={styles.bat} />
+          </div>
+        ))}
+        <div className={styles.ghostFly}>
+          <Ghost className={styles.ghost} />
+        </div>
+        <div className={styles.spiderDrop}>
+          <div className={styles.spiderThread} />
+          <Spider className={styles.spider} />
+        </div>
+        <Pumpkin className={`${styles.pumpkin} ${styles.pumpkinLeft}`} />
+        <Pumpkin className={`${styles.pumpkin} ${styles.pumpkinRight}`} />
+      </div>
+    </>
+  );
+}
+
 // ---------------- Pieces ----------------
 
 function Clock() {
@@ -331,6 +463,7 @@ function Clock() {
   const h12 = h % 12 === 0 ? 12 : h % 12;
   const mm = String(now.getMinutes()).padStart(2, "0");
   const ss = String(now.getSeconds()).padStart(2, "0");
+  const isHalloween = now.getMonth() === 9 && now.getDate() === 31;
   return (
     <div className={styles.clockBlock}>
       <div className={styles.time}>
@@ -345,6 +478,12 @@ function Clock() {
         </span>
       </div>
       <div className={styles.date}>{now.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}</div>
+      {isHalloween && (
+        <div className={styles.tagline}>
+          <Pumpkin className={styles.taglinePumpkin} />
+          Happy Halloween
+        </div>
+      )}
     </div>
   );
 }
@@ -370,8 +509,8 @@ function NextUp({ cal, now }: { cal: CalState; now: Date }) {
     return (
       <section className={`card ${styles.nextCard}`}>
         <p className={styles.eyebrow}>Next up</p>
-        <p className={styles.nextTitle}>Nothing scheduled</p>
-        <p className={styles.nextMeta}>Your week is clear.</p>
+        <p className={styles.nextTitle}>Nothing lurking</p>
+        <p className={styles.nextMeta}>The coast is clear… for now.</p>
       </section>
     );
   }
@@ -463,7 +602,7 @@ function Agenda({ cal, now }: { cal: CalState; now: Date }) {
                 ))}
               </div>
             )}
-            {g.timed.length === 0 && g.allDay.length === 0 && <p className={styles.muted}>Nothing scheduled</p>}
+            {g.timed.length === 0 && g.allDay.length === 0 && <p className={styles.muted}>Nothing lurking</p>}
             <ul className={styles.agendaList}>
               {g.timed.slice(0, 6).map((e) => {
                 const live = new Date(e.start).getTime() <= now.getTime();
@@ -958,22 +1097,22 @@ export default function DashboardPage() {
   useEffect(() => {
     loadWeather(place);
     loadCalendar();
-    loadReminders();
+    if (SHOW_REMINDERS) loadReminders();
     const w = window.setInterval(() => loadWeather(place), WEATHER_EVERY_MS);
     const c = window.setInterval(loadCalendar, CALENDAR_EVERY_MS);
-    const r = window.setInterval(loadReminders, REMINDERS_EVERY_MS);
+    const r = SHOW_REMINDERS ? window.setInterval(loadReminders, REMINDERS_EVERY_MS) : null;
     const onVisible = () => {
       if (document.visibilityState === "visible") {
         loadWeather(place);
         loadCalendar();
-        loadReminders();
+        if (SHOW_REMINDERS) loadReminders();
       }
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       window.clearInterval(w);
       window.clearInterval(c);
-      window.clearInterval(r);
+      if (r !== null) window.clearInterval(r);
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [loadWeather, loadCalendar, loadReminders, place]);
@@ -1023,6 +1162,7 @@ export default function DashboardPage() {
   return (
     <div className={`${styles.root} ${night ? styles.night : ""} ${chrome ? "" : styles.idle}`}>
       <AliveBackground />
+      <HalloweenDecor />
 
       <div className={styles.toolbar} data-visible={chrome}>
         <Link href="/" className={styles.toolBtn}>
@@ -1031,9 +1171,11 @@ export default function DashboardPage() {
         <button className={styles.toolBtn} onClick={() => setShowCalendarSettings(true)}>
           Calendar
         </button>
-        <button className={styles.toolBtn} onClick={() => setShowRemindersSettings(true)}>
-          Reminders
-        </button>
+        {SHOW_REMINDERS && (
+          <button className={styles.toolBtn} onClick={() => setShowRemindersSettings(true)}>
+            Reminders
+          </button>
+        )}
         <button className={styles.toolBtn} onClick={toggleFull}>
           {isFull ? "Exit full screen" : "Full screen"}
         </button>
@@ -1042,7 +1184,7 @@ export default function DashboardPage() {
       <main className={styles.board} style={{ transform: `translate3d(${shift.x}px, ${shift.y}px, 0)` }}>
         <div className={styles.left}>
           <Clock />
-          {now && <RemindersPanel rem={rem} now={now} />}
+          {SHOW_REMINDERS && now && <RemindersPanel rem={rem} now={now} />}
           {now && <NextUp cal={cal} now={now} />}
         </div>
         <div className={styles.right}>
@@ -1054,7 +1196,7 @@ export default function DashboardPage() {
       {showCalendarSettings && (
         <CalendarSettings onClose={() => setShowCalendarSettings(false)} onSaved={() => loadCalendar()} />
       )}
-      {showRemindersSettings && (
+      {SHOW_REMINDERS && showRemindersSettings && (
         <RemindersSettings onClose={() => setShowRemindersSettings(false)} onSaved={() => loadReminders()} />
       )}
 
@@ -1065,3 +1207,4 @@ export default function DashboardPage() {
     </div>
   );
 }
+

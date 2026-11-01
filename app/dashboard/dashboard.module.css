@@ -1,7 +1,9 @@
 /* Room dashboard — sized to be read from across a room.
    Landscape screens get a fixed, no-scroll two-column board; narrow or
-   portrait screens stack and scroll. Colors come from the site's season
-   theme in globals.css. */
+   portrait screens stack and scroll. Halloween edition: the palette below is
+   set on .root only, so it recolors this page (including the shared living
+   background, which reads the same variables) without touching the rest of
+   the site. */
 
 .root {
   position: relative;
@@ -17,6 +19,21 @@
   -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+
+  /* ---- Halloween palette: midnight purple, pumpkin orange, slime green ---- */
+  --accent: #ff7a1a;
+  --accent-dim: #c4560a;
+  --bg: #0a0510;
+  --bg-2: #2b1046;
+  --surface: #1f1033;
+  --surface-border: #4d2b73;
+  --text: #f8ecda;
+  --text-dim: #bba8d4;
+  --blob-1: #7b2cff;
+  --blob-2: #ff6a00;
+  --blob-3: #2fae6b;
+  --blob-4: #4a0e7a;
+  --particle: #ffb347;
 }
 
 .root * {
@@ -31,6 +48,15 @@
 /* Overnight: dim everything so it isn't a nightlight. */
 .night {
   filter: brightness(0.45) saturate(0.8);
+}
+
+/* Cards: dark glass with a pumpkin edge and a faint purple glow. */
+.root :global(.card) {
+  border-color: rgba(255, 140, 40, 0.24);
+  box-shadow:
+    0 24px 60px -24px rgba(0, 0, 0, 0.7),
+    0 0 40px -14px rgba(140, 70, 255, 0.4),
+    inset 0 1px 0 rgba(255, 200, 140, 0.08);
 }
 
 .board {
@@ -57,6 +83,224 @@
   justify-content: space-between;
 }
 
+/* ---------- Halloween decor ---------- */
+
+.decorBack,
+.decorFront {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.decorBack {
+  z-index: 0;
+}
+
+.decorFront {
+  z-index: 2;
+}
+
+.moon {
+  position: absolute;
+  top: -5vmin;
+  right: 7vw;
+  width: 24vmin;
+  height: 24vmin;
+  border-radius: 50%;
+  opacity: 0.8;
+  background:
+    radial-gradient(circle at 30% 40%, rgba(160, 100, 40, 0.28) 0 7%, transparent 8%),
+    radial-gradient(circle at 62% 24%, rgba(160, 100, 40, 0.22) 0 5%, transparent 6%),
+    radial-gradient(circle at 66% 66%, rgba(160, 100, 40, 0.24) 0 9%, transparent 10%),
+    radial-gradient(circle at 35% 35%, #fff6d6 0%, #ffe39a 48%, #f3b45a 100%);
+  box-shadow:
+    0 0 6vmin 2vmin rgba(255, 190, 90, 0.35),
+    0 0 22vmin 8vmin rgba(255, 150, 60, 0.18);
+}
+
+.web {
+  position: absolute;
+  top: 0;
+  width: clamp(90px, 12vw, 220px);
+  height: clamp(90px, 12vw, 220px);
+}
+
+.webLeft {
+  left: 0;
+}
+
+.webRight {
+  right: 0;
+  transform: scaleX(-1);
+}
+
+.pumpkin {
+  position: absolute;
+  bottom: 0;
+  height: clamp(34px, 5.4vh, 70px);
+  width: auto;
+  filter: drop-shadow(0 0 10px rgba(255, 140, 30, 0.6));
+  animation: flicker 3.2s ease-in-out infinite;
+}
+
+.pumpkinLeft {
+  left: clamp(6px, 1vw, 20px);
+  rotate: -6deg;
+}
+
+.pumpkinRight {
+  right: clamp(6px, 1vw, 20px);
+  height: clamp(28px, 4.4vh, 58px);
+  rotate: 7deg;
+  animation-delay: -1.4s;
+}
+
+@keyframes flicker {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 10px rgba(255, 140, 30, 0.6));
+  }
+  45% {
+    filter: drop-shadow(0 0 16px rgba(255, 160, 40, 0.85));
+  }
+  62% {
+    filter: drop-shadow(0 0 7px rgba(255, 130, 20, 0.45));
+  }
+}
+
+/* Bats cross the sky now and then: parked off-screen for the first part of
+   each cycle, then a flapping, bobbing flight to the other side. */
+.batFly {
+  position: absolute;
+  left: 0;
+  animation: batFly var(--dur, 40s) linear infinite;
+  animation-delay: var(--delay, 0s);
+  will-change: transform;
+}
+
+.bat {
+  display: block;
+  width: calc(clamp(26px, 2.6vw, 54px) * var(--s, 1));
+  height: auto;
+  animation:
+    batFlap 0.4s ease-in-out infinite alternate,
+    batBob 2.8s ease-in-out infinite alternate;
+}
+
+@keyframes batFly {
+  0%,
+  35% {
+    transform: translate3d(-14vw, 0, 0);
+  }
+  100% {
+    transform: translate3d(114vw, -9vh, 0);
+  }
+}
+
+@keyframes batFlap {
+  from {
+    scale: 1 1;
+  }
+  to {
+    scale: 1 0.55;
+  }
+}
+
+@keyframes batBob {
+  from {
+    translate: 0 -10px;
+  }
+  to {
+    translate: 0 14px;
+  }
+}
+
+/* A ghost drifts the other way, rarely, and only half there. */
+.ghostFly {
+  position: absolute;
+  right: 0;
+  bottom: 16vh;
+  animation: ghostDrift 84s linear infinite;
+  animation-delay: -30s;
+  will-change: transform, opacity;
+}
+
+.ghost {
+  display: block;
+  width: clamp(34px, 3.4vw, 70px);
+  height: auto;
+  opacity: 0.62;
+  filter: drop-shadow(0 0 12px rgba(200, 180, 255, 0.5));
+  animation: ghostBob 3.6s ease-in-out infinite alternate;
+}
+
+@keyframes ghostDrift {
+  0%,
+  42% {
+    transform: translate3d(14vw, 0, 0);
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+  92% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(-114vw, -10vh, 0);
+    opacity: 0;
+  }
+}
+
+@keyframes ghostBob {
+  from {
+    translate: 0 -8px;
+  }
+  to {
+    translate: 0 10px;
+  }
+}
+
+/* A spider lowers itself on a thread in the gutter between the two columns
+   (that gutter sits at about 55vw at every width), then climbs back up. */
+.spiderDrop {
+  position: absolute;
+  top: 0;
+  left: calc(55.1vw - 10px);
+  width: 20px;
+  animation: spiderDrop 18s ease-in-out infinite;
+}
+
+.spiderThread {
+  position: absolute;
+  left: 9.5px;
+  bottom: 100%;
+  width: 1px;
+  height: 100vh;
+  background: rgba(255, 255, 255, 0.34);
+}
+
+.spider {
+  display: block;
+  width: 20px;
+  height: 20px;
+}
+
+@keyframes spiderDrop {
+  0%,
+  12% {
+    transform: translate3d(0, 0, 0);
+  }
+  50%,
+  62% {
+    transform: translate3d(0, 24vh, 0);
+  }
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
 /* ---------- Clock ---------- */
 
 .clockBlock {
@@ -73,7 +317,9 @@
   line-height: 0.88;
   letter-spacing: -0.045em;
   font-variant-numeric: tabular-nums;
-  text-shadow: 0 10px 60px rgba(0, 0, 0, 0.35);
+  text-shadow:
+    0 0 48px rgba(255, 122, 26, 0.32),
+    0 10px 60px rgba(0, 0, 0, 0.5);
 }
 
 .colon {
@@ -110,6 +356,27 @@
   font-family: var(--sans);
   font-size: clamp(22px, 2.6vw, 48px);
   color: var(--text-dim);
+}
+
+.tagline {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  margin-top: clamp(6px, 1.2vh, 14px);
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: clamp(16px, 1.7vw, 32px);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  text-shadow: 0 0 22px rgba(255, 122, 26, 0.6);
+}
+
+.taglinePumpkin {
+  width: 1.5em;
+  height: auto;
+  flex-shrink: 0;
+  filter: drop-shadow(0 0 8px rgba(255, 140, 30, 0.6));
 }
 
 /* ---------- Shared bits ---------- */
@@ -161,8 +428,8 @@
   padding: 5px 14px;
   border-radius: 999px;
   color: var(--accent);
-  border: 1px solid rgba(232, 112, 58, 0.4);
-  background: rgba(232, 112, 58, 0.12);
+  border: 1px solid rgba(255, 122, 26, 0.45);
+  background: rgba(255, 122, 26, 0.14);
   white-space: nowrap;
 }
 
@@ -173,18 +440,18 @@
 }
 
 .live .countdown {
-  color: #1a0f08;
-  background: #8fbf7f;
-  border-color: #8fbf7f;
+  color: #10200a;
+  background: #9be15d;
+  border-color: #9be15d;
 }
 
 .live {
-  border-left-color: #8fbf7f !important;
+  border-left-color: #9be15d !important;
 }
 
 @keyframes pulse {
   50% {
-    box-shadow: 0 0 0 8px rgba(232, 112, 58, 0);
+    box-shadow: 0 0 0 8px rgba(255, 122, 26, 0);
     opacity: 0.85;
   }
 }
@@ -367,7 +634,7 @@
   top: 0;
   bottom: 0;
   border-radius: 999px;
-  background: linear-gradient(90deg, #8ec5ff, var(--accent));
+  background: linear-gradient(90deg, #9b6bff, var(--accent));
 }
 
 /* ---------- Agenda ---------- */
@@ -436,10 +703,10 @@
 
 .agendaLive .agendaTime,
 .agendaLive .agendaTitle {
-  color: #8fbf7f;
+  color: #9be15d;
 }
 
-/* ---------- Reminders ---------- */
+/* ---------- Reminders (hidden for now — see SHOW_REMINDERS in page.tsx) ---------- */
 
 .remCard {
   flex-shrink: 0;
@@ -518,7 +785,7 @@
   text-decoration: none;
   color: var(--text);
   background: color-mix(in srgb, var(--surface) 70%, transparent);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 140, 40, 0.3);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
@@ -547,7 +814,7 @@
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: rgba(8, 8, 10, 0.55);
+  background: rgba(10, 4, 18, 0.65);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
 }
@@ -625,6 +892,11 @@
   .agendaCard {
     overflow: visible;
   }
+
+  /* No gutter between columns when stacked, so no spider. */
+  .spiderDrop {
+    display: none;
+  }
 }
 
 @media (max-width: 560px) {
@@ -647,7 +919,15 @@
 
 @media (prefers-reduced-motion: reduce) {
   .colon,
-  .soon .countdown {
+  .soon .countdown,
+  .pumpkin {
     animation: none;
+  }
+
+  /* The things that cross the screen just stay away. */
+  .batFly,
+  .ghostFly,
+  .spiderDrop {
+    display: none;
   }
 }
