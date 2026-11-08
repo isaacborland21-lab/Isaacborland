@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SignOutButton, UserButton, useUser } from "@clerk/nextjs";
+import { toast } from "sonner";
 import WeatherEffects, { WeatherInfo } from "./WeatherEffects";
 import FoodTab, { FoodContent } from "./FoodTab";
 import ProjectsTab from "./ProjectsTab";
@@ -11,6 +12,9 @@ import { normalizeProjects, Project } from "@/lib/projects";
 import { readUrl, writeUrl } from "@/lib/urlState";
 import AliveBackground from "./AliveBackground";
 import { DEFAULT_PLAN } from "./foodDefaults";
+import { Button, Card, CardSkeleton, Field, Input, TextArea } from "./ui/ui";
+import { BottomBar, NavGroup, NavItem, Sidebar } from "./ui/AppNav";
+import { userButtonAppearance } from "./ui/clerkAppearance";
 
 const seasonLabels: Record<string, string> = {
   fall: "Fall theme",
@@ -22,59 +26,28 @@ const seasonLabels: Record<string, string> = {
 const baseTabs = ["Home", "Projects", "Graffiti", "Work orders", "Lawn care", "Other jobs", "Food", "About", "Contact"] as const;
 type Tab = (typeof baseTabs)[number] | "Admin";
 
-const mono = "'IBM Plex Mono', monospace";
-const sans = "'IBM Plex Sans', sans-serif";
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  background: "var(--bg)",
-  border: "1px solid var(--surface-border)",
-  borderRadius: 4,
-  color: "var(--text)",
-  fontFamily: sans,
-  fontSize: 14,
-  padding: "8px 10px",
+// How the sections are grouped in the nav. The Dashboard is its own
+// full-screen page, so it's a link rather than a tab.
+const groupOf: Record<Tab, string> = {
+  Home: "Personal",
+  Projects: "Personal",
+  Food: "Personal",
+  About: "Personal",
+  Contact: "Personal",
+  Graffiti: "Field work",
+  "Work orders": "Field work",
+  "Lawn care": "Field work",
+  "Other jobs": "Field work",
+  Admin: "Tools",
 };
+const groupOrder = ["Personal", "Field work", "Tools"];
 
-const buttonBase: React.CSSProperties = {
-  fontFamily: sans,
-  fontSize: 13,
-  padding: "8px 14px",
-  borderRadius: 4,
-  cursor: "pointer",
-};
+// Which sections earn a spot in the phone's bottom bar, best first.
+const barPriority: Tab[] = ["Home", "Projects", "Graffiti", "Food", "Work orders", "Lawn care", "Other jobs", "About", "Contact", "Admin"];
+const BAR_SLOTS = 4;
 
-const saveButtonStyle: React.CSSProperties = {
-  ...buttonBase,
-  background: "var(--accent)",
-  border: "none",
-  color: "#1a0f08",
-  fontWeight: 600,
-};
-
-const cancelButtonStyle: React.CSSProperties = {
-  ...buttonBase,
-  background: "none",
-  border: "1px solid var(--surface-border)",
-  color: "var(--text-dim)",
-};
-
-const editButtonStyle: React.CSSProperties = {
-  background: "none",
-  border: "none",
-  cursor: "pointer",
-  fontFamily: mono,
-  fontSize: 12,
-  color: "var(--accent)",
-  padding: 0,
-};
-
-const errorStyle: React.CSSProperties = {
-  fontFamily: sans,
-  fontSize: 13,
-  color: "#e88",
-  margin: "8px 0 0 0",
-};
+// Tabs that draw their own title (they're shared with the crew page).
+const ownTitle = new Set<Tab>(["Graffiti", "Work orders", "Lawn care", "Other jobs"]);
 
 type HomeContent = { headline: string; body: string };
 type AboutContent = { body: string };
@@ -140,232 +113,162 @@ const DEFAULT_NEW_USER_TAB_ADMIN: Partial<Record<EditableTab, boolean>> = {
 
 const emptyFood: FoodContent = { recipes: [], todos: [] };
 
-function Card({ children, corner }: { children: React.ReactNode; corner?: React.ReactNode }) {
-  return (
-    <div className="card">
-      {corner && <div style={{ position: "absolute", top: 16, right: 16 }}>{corner}</div>}
-      {children}
-    </div>
-  );
-}
+// ---------- Editable text cards (Home, About, Contact) ----------
 
-function HomeTab({
-  data,
-  editable,
-  onSave,
-}: {
-  data: HomeContent;
-  editable: boolean;
-  onSave: (next: HomeContent) => Promise<void>;
-}) {
+// Shared edit flow: reading view ↔ form in the same card, Save/Cancel,
+// inline error, and a "Saved" toast once the server confirms.
+function useEditor<T>(data: T, onSave: (next: T) => Promise<void>) {
   const [editing, setEditing] = useState(false);
-  const [headline, setHeadline] = useState(data.headline);
-  const [body, setBody] = useState(data.body);
+  const [draft, setDraft] = useState<T>(data);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setHeadline(data.headline);
-    setBody(data.body);
+    setDraft(data);
   }, [data]);
 
-  if (editing) {
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave(draft);
+      setEditing(false);
+      toast.success("Saved");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function cancel() {
+    setDraft(data);
+    setEditing(false);
+    setError(null);
+  }
+
+  return { editing, setEditing, draft, setDraft, saving, error, save, cancel };
+}
+
+function EditActions({ saving, error, onSave, onCancel }: { saving: boolean; error: string | null; onSave: () => void; onCancel: () => void }) {
+  return (
+    <>
+      {error && <p className="form-error">{error}</p>}
+      <div className="row" style={{ marginTop: 16 }}>
+        <Button variant="primary" busy={saving} onClick={onSave}>
+          {saving ? "Saving…" : "Save"}
+        </Button>
+        <Button onClick={onCancel} disabled={saving}>
+          Cancel
+        </Button>
+      </div>
+    </>
+  );
+}
+
+function EditButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Button variant="quiet" onClick={onClick}>
+      Edit
+    </Button>
+  );
+}
+
+function HomeTab({ data, editable, onSave }: { data: HomeContent; editable: boolean; onSave: (next: HomeContent) => Promise<void> }) {
+  const ed = useEditor(data, onSave);
+
+  if (ed.editing) {
     return (
       <Card>
-        <input value={headline} onChange={(e) => setHeadline(e.target.value)} style={inputStyle} />
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          rows={4}
-          style={{ ...inputStyle, marginTop: 12, resize: "vertical" }}
-        />
-        {error && <p style={errorStyle}>{error}</p>}
-        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-          <button
-            disabled={saving}
-            style={saveButtonStyle}
-            onClick={async () => {
-              setSaving(true);
-              setError(null);
-              try {
-                await onSave({ headline, body });
-                setEditing(false);
-              } catch (e) {
-                setError((e as Error).message);
-              } finally {
-                setSaving(false);
-              }
-            }}
-          >
-            {saving ? "Saving…" : "Save"}
-          </button>
-          <button
-            style={cancelButtonStyle}
-            onClick={() => {
-              setHeadline(data.headline);
-              setBody(data.body);
-              setEditing(false);
-              setError(null);
-            }}
-          >
-            Cancel
-          </button>
+        <div className="swap stack">
+          <Field label="Headline">
+            <Input value={ed.draft.headline} onChange={(e) => ed.setDraft({ ...ed.draft, headline: e.target.value })} autoFocus />
+          </Field>
+          <Field label="Text">
+            <TextArea value={ed.draft.body} onChange={(e) => ed.setDraft({ ...ed.draft, body: e.target.value })} rows={4} />
+          </Field>
+          <EditActions saving={ed.saving} error={ed.error} onSave={ed.save} onCancel={ed.cancel} />
         </div>
       </Card>
     );
   }
 
   return (
-    <Card corner={editable && <button style={editButtonStyle} onClick={() => setEditing(true)}>Edit</button>}>
-      <h2 style={{ fontFamily: mono, fontWeight: 600, fontSize: 30, lineHeight: 1.25, margin: "0 0 12px 0", paddingRight: 48 }}>
-        {data.headline}
-      </h2>
-      <p style={{ fontFamily: sans, fontSize: 15, lineHeight: 1.6, color: "var(--text-dim)", margin: 0 }}>
+    <Card corner={editable && <EditButton onClick={() => ed.setEditing(true)} />}>
+      <div className="swap">
+        <h2 className="home-headline">{data.headline}</h2>
+        <p className="prose">{data.body}</p>
+      </div>
+    </Card>
+  );
+}
+
+function AboutTab({ data, editable, onSave }: { data: AboutContent; editable: boolean; onSave: (next: AboutContent) => Promise<void> }) {
+  const ed = useEditor(data, onSave);
+
+  if (ed.editing) {
+    return (
+      <Card>
+        <div className="swap stack">
+          <Field label="About">
+            <TextArea value={ed.draft.body} onChange={(e) => ed.setDraft({ body: e.target.value })} rows={6} autoFocus />
+          </Field>
+          <EditActions saving={ed.saving} error={ed.error} onSave={ed.save} onCancel={ed.cancel} />
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <Card corner={editable && <EditButton onClick={() => ed.setEditing(true)} />}>
+      <p className="prose swap" style={{ color: "var(--text)", paddingRight: 48 }}>
         {data.body}
       </p>
     </Card>
   );
 }
 
-function AboutTab({
-  data,
-  editable,
-  onSave,
-}: {
-  data: AboutContent;
-  editable: boolean;
-  onSave: (next: AboutContent) => Promise<void>;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [body, setBody] = useState(data.body);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+function ContactTab({ data, editable, onSave }: { data: ContactContent; editable: boolean; onSave: (next: ContactContent) => Promise<void> }) {
+  const ed = useEditor(data, onSave);
 
-  useEffect(() => {
-    setBody(data.body);
-  }, [data]);
-
-  if (editing) {
+  if (ed.editing) {
     return (
       <Card>
-        <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={5} style={{ ...inputStyle, resize: "vertical" }} />
-        {error && <p style={errorStyle}>{error}</p>}
-        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-          <button
-            disabled={saving}
-            style={saveButtonStyle}
-            onClick={async () => {
-              setSaving(true);
-              setError(null);
-              try {
-                await onSave({ body });
-                setEditing(false);
-              } catch (e) {
-                setError((e as Error).message);
-              } finally {
-                setSaving(false);
-              }
-            }}
-          >
-            {saving ? "Saving…" : "Save"}
-          </button>
-          <button
-            style={cancelButtonStyle}
-            onClick={() => {
-              setBody(data.body);
-              setEditing(false);
-              setError(null);
-            }}
-          >
-            Cancel
-          </button>
+        <div className="swap stack">
+          <Field label="Intro line">
+            <Input value={ed.draft.body} onChange={(e) => ed.setDraft({ ...ed.draft, body: e.target.value })} autoFocus />
+          </Field>
+          <Field label="Email address">
+            <Input
+              mono
+              type="email"
+              autoCapitalize="none"
+              autoCorrect="off"
+              value={ed.draft.email}
+              onChange={(e) => ed.setDraft({ ...ed.draft, email: e.target.value })}
+            />
+          </Field>
+          <EditActions saving={ed.saving} error={ed.error} onSave={ed.save} onCancel={ed.cancel} />
         </div>
       </Card>
     );
   }
 
   return (
-    <Card corner={editable && <button style={editButtonStyle} onClick={() => setEditing(true)}>Edit</button>}>
-      <p style={{ fontFamily: sans, fontSize: 15, lineHeight: 1.6, margin: 0 }}>{data.body}</p>
+    <Card corner={editable && <EditButton onClick={() => ed.setEditing(true)} />}>
+      <div className="swap">
+        <p className="prose" style={{ color: "var(--text)", margin: "0 0 14px", paddingRight: 48 }}>
+          {data.body}
+        </p>
+        <a href={`mailto:${data.email}`} className="link-chip">
+          {data.email}
+        </a>
+      </div>
     </Card>
   );
 }
 
-function ContactTab({
-  data,
-  editable,
-  onSave,
-}: {
-  data: ContactContent;
-  editable: boolean;
-  onSave: (next: ContactContent) => Promise<void>;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [body, setBody] = useState(data.body);
-  const [email, setEmail] = useState(data.email);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setBody(data.body);
-    setEmail(data.email);
-  }, [data]);
-
-  if (editing) {
-    return (
-      <Card>
-        <input value={body} onChange={(e) => setBody(e.target.value)} style={inputStyle} placeholder="Intro line" />
-        <input
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          style={{ ...inputStyle, marginTop: 12, fontFamily: mono }}
-          placeholder="Email address"
-        />
-        {error && <p style={errorStyle}>{error}</p>}
-        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-          <button
-            disabled={saving}
-            style={saveButtonStyle}
-            onClick={async () => {
-              setSaving(true);
-              setError(null);
-              try {
-                await onSave({ body, email });
-                setEditing(false);
-              } catch (e) {
-                setError((e as Error).message);
-              } finally {
-                setSaving(false);
-              }
-            }}
-          >
-            {saving ? "Saving…" : "Save"}
-          </button>
-          <button
-            style={cancelButtonStyle}
-            onClick={() => {
-              setBody(data.body);
-              setEmail(data.email);
-              setEditing(false);
-              setError(null);
-            }}
-          >
-            Cancel
-          </button>
-        </div>
-      </Card>
-    );
-  }
-
-  return (
-    <Card corner={editable && <button style={editButtonStyle} onClick={() => setEditing(true)}>Edit</button>}>
-      <p style={{ fontFamily: sans, fontSize: 15, lineHeight: 1.6, margin: "0 0 12px 0" }}>{data.body}</p>
-      <a href={`mailto:${data.email}`} style={{ fontFamily: mono, fontSize: 15 }}>
-        {data.email}
-      </a>
-    </Card>
-  );
-}
+// ---------- Admin ----------
 
 const editableTabKeys = ["home", "projects", "graffiti", "workorders", "lawn", "otherjobs", "food", "about", "contact"] as const;
 // What the Admin tab can switch on per user: every tab, plus "invoice" (the invoice + prices for the job tabs that person has).
@@ -468,84 +371,70 @@ function AdminTab({
     }
   }
 
-  if (error) {
-    return (
-      <Card>
-        <p style={errorStyle}>{error}</p>
-      </Card>
-    );
-  }
+  if (!users && !error) return <CardSkeleton lines={4} />;
 
   if (!users) {
     return (
       <Card>
-        <p style={{ fontFamily: sans, fontSize: 14, color: "var(--text-dim)", margin: 0 }}>Loading users…</p>
+        <p className="form-error" style={{ margin: 0 }}>
+          {error}
+        </p>
       </Card>
     );
   }
 
   return (
-    <Card>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
-        <div>
-          <p style={{ fontFamily: mono, fontSize: 11, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 6px 0" }}>
-            View as
-          </p>
-          <select
-            value={preview?.id ?? "__self__"}
-            onChange={(e) => handleSelect(e.target.value)}
-            style={{ ...inputStyle, width: "auto", minWidth: 240 }}
-          >
-            <option value="__self__">Yourself (Owner)</option>
-            <option value="__default__">New sign-up (default access)</option>
-            <option value="__none__">No tabs granted</option>
-            {users
-              .filter((u) => !u.owner)
-              .map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.firstName || u.email}
-                </option>
-              ))}
-          </select>
-          <p style={{ fontFamily: sans, fontSize: 12, color: "var(--text-dim)", margin: "6px 0 0 0", maxWidth: 420 }}>
-            Swaps the tabs and edit buttons you see across the whole site for that role's, so you can check what they actually get. It doesn't touch anyone's real permissions.
-          </p>
+    <div className="stack" style={{ gap: 20 }}>
+      <Card>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 12 }}>
+          <div style={{ minWidth: 0, flex: "1 1 280px" }}>
+            <Field label="View as">
+              <select className="input" value={preview?.id ?? "__self__"} onChange={(e) => handleSelect(e.target.value)} style={{ maxWidth: 320 }}>
+                <option value="__self__">Yourself (Owner)</option>
+                <option value="__default__">New sign-up (default access)</option>
+                <option value="__none__">No tabs granted</option>
+                {users
+                  .filter((u) => !u.owner)
+                  .map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.firstName || u.email}
+                    </option>
+                  ))}
+              </select>
+            </Field>
+            <p className="muted" style={{ fontSize: 13, lineHeight: 1.5, margin: "8px 0 0", maxWidth: 460 }}>
+              Swaps the tabs and edit buttons you see across the whole site for that role's, so you can check what they actually get. It doesn't touch anyone's real permissions.
+            </p>
+          </div>
+          {preview && <Button onClick={() => onPreview(null)}>Exit preview</Button>}
         </div>
-        {preview && (
-          <button onClick={() => onPreview(null)} style={cancelButtonStyle}>
-            Exit preview
-          </button>
-        )}
-      </div>
+      </Card>
 
-      <p style={{ fontFamily: sans, fontSize: 13, color: "var(--text-dim)", margin: "0 0 16px 0", borderTop: "1px solid var(--surface-border)", paddingTop: 16 }}>
-        Grant or revoke edit access to each tab, per user.
-      </p>
-      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <Card>
+        <p className="eyebrow">Access</p>
+        <p className="muted" style={{ fontSize: 14, margin: "0 0 6px" }}>
+          Grant or revoke edit access to each tab, per user.
+        </p>
+        {error && <p className="form-error">{error}</p>}
         {users.map((u) => (
-          <div key={u.id} style={{ borderTop: "1px solid var(--surface-border)", paddingTop: 12 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8, flexWrap: "wrap", gap: 4 }}>
-              <span style={{ fontFamily: sans, fontSize: 14 }}>{u.firstName || u.email}</span>
-              <span style={{ fontFamily: mono, fontSize: 11, color: "var(--text-dim)" }}>{u.email}</span>
+          <div key={u.id} className="admin-user">
+            <div className="admin-user-head">
+              <span style={{ fontSize: 15, fontWeight: 500 }}>{u.firstName || u.email}</span>
+              <span className="muted" style={{ fontFamily: "var(--mono)", fontSize: 12 }}>
+                {u.email}
+              </span>
             </div>
             {u.owner ? (
-              <p style={{ fontFamily: mono, fontSize: 11, color: "var(--accent)", margin: 0 }}>Owner — full access</p>
+              <p style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--accent)", margin: 0 }}>Owner — full access</p>
             ) : (
-              <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+              <div className="row">
                 {permissionKeys.map((tab) => {
                   const key = `${u.id}:${tab}`;
                   const checked = u.tabAdmin?.[tab] === true;
                   return (
-                    <label
-                      key={tab}
-                      style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: sans, fontSize: 13, color: "var(--text-dim)" }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={pending === key}
-                        onChange={(e) => toggle(u.id, tab, e.target.checked)}
-                      />
+                    <label key={tab} className="toggle-chip">
+                      <input type="checkbox" checked={checked} disabled={pending === key} onChange={(e) => toggle(u.id, tab, e.target.checked)} />
+                      <span className="toggle-dot" aria-hidden="true" />
                       {permissionLabel[tab]}
                     </label>
                   );
@@ -554,103 +443,9 @@ function AdminTab({
             )}
           </div>
         ))}
-      </div>
-    </Card>
+      </Card>
+    </div>
   );
-}
-
-// ---------- Nav icons (inline so there's nothing extra to load) ----------
-
-function Icon({ name }: { name: Tab }) {
-  const common = {
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: 1.8,
-    strokeLinecap: "round" as const,
-    strokeLinejoin: "round" as const,
-    "aria-hidden": true,
-  };
-  switch (name) {
-    case "Home":
-      return (
-        <svg {...common}>
-          <path d="M3 11.5 12 4l9 7.5" />
-          <path d="M5.5 10v9.5h13V10" />
-          <path d="M10 19.5v-5h4v5" />
-        </svg>
-      );
-    case "Projects":
-      return (
-        <svg {...common}>
-          <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" />
-          <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />
-          <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
-          <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
-        </svg>
-      );
-    case "Graffiti":
-      return (
-        <svg {...common}>
-          <rect x="6" y="10" width="8" height="11" rx="1.8" />
-          <path d="M8 10V7.5h4V10" />
-          <path d="M9 7.5V5.5h2v2" />
-          <path d="M17 6.5h.01M19.5 4.5h.01M19.5 8.5h.01M17 10.5h.01M19.5 12.5h.01" strokeWidth={2.4} />
-        </svg>
-      );
-    case "Work orders":
-      return (
-        <svg {...common}>
-          <rect x="5" y="4.5" width="14" height="16" rx="2" />
-          <path d="M9 4.5V3h6v1.5" />
-          <path d="M8.5 10h7M8.5 13.5h7M8.5 17h4" />
-        </svg>
-      );
-    case "Lawn care":
-      return (
-        <svg {...common}>
-          <path d="M3 20.5h18" />
-          <path d="M6 20.5c0-4 .5-7 2-10 .5 3 1.5 5 1.5 10" />
-          <path d="M11 20.5c0-5 .8-9 3-13 .6 4.5 1.8 8 1.8 13" />
-          <path d="M16.5 20.5c0-3 .5-5.5 2-8 .4 2.5.5 5 .5 8" />
-        </svg>
-      );
-    case "Other jobs":
-      return (
-        <svg {...common}>
-          <path d="M14.5 6.5a4 4 0 0 0-5 5L4 17l3 3 5.5-5.5a4 4 0 0 0 5-5l-2.5 2.5-2-.5-.5-2z" />
-        </svg>
-      );
-    case "Food":
-      return (
-        <svg {...common}>
-          <path d="M7 3v8a2 2 0 0 0 2 2v8" />
-          <path d="M5 3v5.5M9 3v5.5" />
-          <path d="M16.5 21V3c-2.2 1.3-3.5 4-3.5 7.5 0 1.9 1 3 3.5 3" />
-        </svg>
-      );
-    case "About":
-      return (
-        <svg {...common}>
-          <circle cx="12" cy="8" r="4" />
-          <path d="M4.5 20.5c1.4-3.6 4.2-5.5 7.5-5.5s6.1 1.9 7.5 5.5" />
-        </svg>
-      );
-    case "Contact":
-      return (
-        <svg {...common}>
-          <rect x="3" y="5.5" width="18" height="13" rx="2" />
-          <path d="m3.5 7 8.5 6 8.5-6" />
-        </svg>
-      );
-    case "Admin":
-      return (
-        <svg {...common}>
-          <path d="M12 3 4.5 6v5.5c0 4.5 3.2 8.2 7.5 9.5 4.3-1.3 7.5-5 7.5-9.5V6L12 3Z" />
-          <path d="m9 12 2 2 4-4" />
-        </svg>
-      );
-  }
 }
 
 // ---------- Home: today's meals at a glance ----------
@@ -660,7 +455,7 @@ const DAY_KEYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 function TodayCard({ food, onOpenFood }: { food: FoodContent; onOpenFood: () => void }) {
   const [today, setToday] = useState<Date | null>(null);
   useEffect(() => setToday(new Date()), []);
-  if (!today) return <Card>{null}</Card>;
+  if (!today) return <CardSkeleton lines={2} />;
 
   const plan = food.plan ?? DEFAULT_PLAN;
   const key = DAY_KEYS[today.getDay()];
@@ -671,32 +466,26 @@ function TodayCard({ food, onOpenFood }: { food: FoodContent; onOpenFood: () => 
 
   return (
     <Card>
-      <p style={{ fontFamily: mono, fontSize: 12, color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px 0" }}>
-        Today · {today.toLocaleDateString(undefined, { weekday: "long" })}
-      </p>
-      {prepDay && (
-        <p style={{ fontFamily: sans, fontSize: 13, color: "#8fbf7f", margin: "0 0 8px 0" }}>Prep day: cook for {prepDay}.</p>
-      )}
+      <p className="eyebrow">Today · {today.toLocaleDateString(undefined, { weekday: "long" })}</p>
+      {prepDay && <p style={{ fontSize: 13, color: "var(--success)", margin: "0 0 4px" }}>Prep day: cook for {prepDay}.</p>}
       {[
         ["Lunch", lunch],
         ["Dinner", dinner],
       ].map(([label, meal]) => (
         <div key={label as string} className="today-meal">
-          <p style={{ fontFamily: mono, fontSize: 11, color: "var(--text-dim)", textTransform: "uppercase", margin: "0 0 3px 0" }}>
+          <p className="field-label" style={{ margin: "0 0 4px" }}>
             {label as string}
           </p>
-          <p style={{ fontFamily: sans, fontSize: 16, fontWeight: 600, margin: 0 }}>
-            {meal && typeof meal === "object" ? meal.name : "Nothing planned"}
-          </p>
+          <p className="today-meal-name">{meal && typeof meal === "object" ? meal.name : "Nothing planned"}</p>
         </div>
       ))}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 14, gap: 12, flexWrap: "wrap" }}>
-        <span style={{ fontFamily: sans, fontSize: 13, color: "var(--text-dim)" }}>
+        <span className="muted" style={{ fontSize: 13 }}>
           {openTodos > 0 ? `${openTodos} food to-do${openTodos === 1 ? "" : "s"} open` : "To-do list is clear"}
         </span>
-        <button style={{ ...editButtonStyle, fontSize: 13 }} onClick={onOpenFood}>
+        <Button variant="quiet" onClick={onOpenFood} style={{ fontSize: 13 }}>
           Open Food →
-        </button>
+        </Button>
       </div>
     </Card>
   );
@@ -722,11 +511,26 @@ function greetingFor(hour: number) {
   return "Good evening";
 }
 
+// The Home greeting arrives as one wave the first time it's shown on a page
+// load. After that (coming back from another tab) it's just there.
+let introPlayed = false;
+
 export default function HomePage() {
   const { user, isLoaded } = useUser();
   const [active, setActive] = useState<Tab>("Home");
   const [openProject, setOpenProject] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewTarget | null>(null);
+  // Which way the last navigation went in nav order, so the new view comes in from that side.
+  const [dir, setDir] = useState<"fwd" | "back">("fwd");
+  const activeRef = useRef<Tab>("Home");
+  const [intro, setIntro] = useState(() => !introPlayed);
+
+  function go(tab: Tab) {
+    const order: Tab[] = [...baseTabs, "Admin"];
+    setDir(order.indexOf(tab) < order.indexOf(activeRef.current) ? "back" : "fwd");
+    activeRef.current = tab;
+    setActive(tab);
+  }
 
   // The address bar is the source of truth for which tab/project is open,
   // so back/forward work and any view can be linked to. Read it after mount
@@ -735,7 +539,7 @@ export default function HomePage() {
     const sync = () => {
       const { tab, project } = readUrl();
       const match = ([...baseTabs, "Admin"] as Tab[]).find((t) => t.toLowerCase() === tab);
-      setActive(match ?? "Home");
+      go(match ?? "Home");
       setOpenProject(match === "Projects" ? project : null);
     };
     sync();
@@ -744,7 +548,7 @@ export default function HomePage() {
   }, []);
 
   function navigate(tab: Tab, project: string | null = null, mode: "push" | "replace" = "push") {
-    setActive(tab);
+    go(tab);
     setOpenProject(tab === "Projects" ? project : null);
     writeUrl({ tab, project }, mode);
   }
@@ -851,6 +655,18 @@ export default function HomePage() {
       active === "Projects" && openProject ? normalizeProjects(content?.projects).find((p) => p.id === openProject)?.name : null;
     document.title = projectName ? `${projectName} · Isaac Borland` : active === "Home" ? "Isaac Borland" : `${active} · Isaac Borland`;
   }, [active, openProject, content]);
+
+  // The intro plays once: as soon as Home has real content to show it in.
+  // Its classes stay on until you leave Home (the animations hold their last
+  // frame), so nothing re-triggers an entrance mid-visit.
+  const playIntro = intro && active === "Home" && content !== null;
+  useEffect(() => {
+    if (playIntro) introPlayed = true;
+  }, [playIntro]);
+  useEffect(() => {
+    if (intro && active !== "Home") setIntro(false);
+  }, [intro, active]);
+
   const food: FoodContent = { ...emptyFood, ...(content?.food ?? {}) };
 
   async function saveTab<K extends keyof TabContentData>(tab: K, next: TabContentData[K]) {
@@ -872,214 +688,237 @@ export default function HomePage() {
     return (
       <>
         <AliveBackground />
-        <main className="shell">
-          <p style={{ fontFamily: sans, fontSize: 14, color: "var(--text-dim)" }}>Taking you to the crew page…</p>
+        <main className="signin">
+          <p className="muted" style={{ fontSize: 14 }}>
+            Taking you to the crew page…
+          </p>
         </main>
       </>
     );
   }
+
+  // ---------- Nav model ----------
+
+  const groups: NavGroup[] = groupOrder
+    .map((label) => ({
+      label,
+      items: [
+        ...tabs.filter((t) => groupOf[t] === label).map((t): NavItem => ({ key: t, label: t, icon: t })),
+        ...(label === "Tools" ? [{ key: "Dashboard", label: "Dashboard", icon: "Dashboard" as const, href: "/dashboard" }] : []),
+      ],
+    }))
+    .filter((g) => g.items.length > 0);
+  const allItems = groups.flatMap((g) => g.items);
+  const barItems: NavItem[] =
+    allItems.length <= BAR_SLOTS + 1
+      ? allItems
+      : barPriority
+          .filter((t) => tabs.includes(t))
+          .slice(0, BAR_SLOTS)
+          .map((t) => ({ key: t, label: t, icon: t }));
+  const select = (item: NavItem) => {
+    navigate(item.key as Tab);
+    window.scrollTo({ top: 0 });
+  };
+
+  const timeText = now ? now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
+  const dateText = now ? now.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) : "";
+
+  // Clerk keeps one sign-in per browser, so this signs you out here and opens the crew login,
+  // where you can sign in as a crew account (e.g. to see what crew see). Sign back in at /sign-in.
+  const crewSwitch = realIsOwner && (
+    <SignOutButton redirectUrl="/crew">
+      <button type="button" className="switch-account" data-testid="crew-switch" title="Signs you out of this account and opens the crew login">
+        Open crew page as another account →
+      </button>
+    </SignOutButton>
+  );
+
+  const sidebarTop = (
+    <div className="sidebar-brand">
+      <UserButton appearance={userButtonAppearance} />
+      <p className="site-name">isaacborland.com</p>
+    </div>
+  );
+
+  const sidebarFoot = (
+    <div className="sidebar-foot">
+      <div className="clock">{timeText || " "}</div>
+      {dateText && <span className="status-line">{dateText}</span>}
+      {weather && <span className="status-line">{weatherText(weather)}</span>}
+      {seasonLabels[season] && <span className="chip">{seasonLabels[season]}</span>}
+      <div>{crewSwitch}</div>
+    </div>
+  );
+
+  // ---------- Views ----------
+
+  let body: React.ReactNode = null;
+  if (usesContent && loadError) {
+    body = (
+      <Card>
+        <p className="form-error" style={{ margin: 0 }}>
+          {loadError}
+        </p>
+      </Card>
+    );
+  } else if (usesContent && !content) {
+    body =
+      active === "Home" ? (
+        <div className="home-grid">
+          <CardSkeleton lines={3} />
+          <CardSkeleton lines={4} />
+        </div>
+      ) : (
+        <CardSkeleton />
+      );
+  } else if (usesContent && content && visibleBaseTabs.length === 0) {
+    body = (
+      <Card>
+        <p className="muted" style={{ fontSize: 14, margin: 0 }}>
+          No tabs are available for this account yet.
+        </p>
+      </Card>
+    );
+  } else if (content && active === "Home" && canEdit("home")) {
+    body = (
+      <div className="home-grid">
+        <div className={playIntro ? "intro-support" : undefined} style={{ "--delay": "150ms" } as React.CSSProperties}>
+          <HomeTab data={content.home} editable={canEdit("home")} onSave={(d) => saveTab("home", d)} />
+        </div>
+        <div className={playIntro ? "intro-support" : undefined} style={{ "--delay": "190ms" } as React.CSSProperties}>
+          <TodayCard food={food} onOpenFood={() => navigate("Food")} />
+        </div>
+      </div>
+    );
+  } else if (content && active === "Projects" && canEdit("projects")) {
+    body = (
+      <div className="legacy-zoom">
+        <ProjectsTab
+          projects={normalizeProjects(content.projects)}
+          editable={canEdit("projects")}
+          openId={openProject}
+          onOpen={(id, mode) => navigate("Projects", id, mode)}
+          onSave={(d) => saveTab("projects", d)}
+          onReplaced={(raw) => setContent((prev) => (prev ? { ...prev, projects: normalizeProjects(raw) } : prev))}
+        />
+      </div>
+    );
+  } else if (active === "Graffiti" && canEdit("graffiti")) {
+    body = (
+      <div className="legacy-zoom">
+        <GraffitiTab isOwner={isOwner} canInvoice={isOwner || effectiveMetadata.tabAdmin?.invoice === true} />
+      </div>
+    );
+  } else if (active === "Work orders" && canEdit("workorders")) {
+    body = (
+      <div className="legacy-zoom">
+        <JobsTab key="workorders" jtype="workorders" isOwner={isOwner} />
+      </div>
+    );
+  } else if (active === "Lawn care" && canEdit("lawn")) {
+    body = (
+      <div className="legacy-zoom">
+        <JobsTab key="lawn" jtype="lawn" isOwner={isOwner} />
+      </div>
+    );
+  } else if (active === "Other jobs" && canEdit("otherjobs")) {
+    body = (
+      <div className="legacy-zoom">
+        <JobsTab key="otherjobs" jtype="otherjobs" isOwner={isOwner} />
+      </div>
+    );
+  } else if (content && active === "Food" && canEdit("food")) {
+    body = (
+      <div className="legacy-zoom">
+        <FoodTab data={food} editable={canEdit("food")} onSave={(d) => saveTab("food", d)} />
+      </div>
+    );
+  } else if (content && active === "About" && canEdit("about")) {
+    body = <AboutTab data={content.about} editable={canEdit("about")} onSave={(d) => saveTab("about", d)} />;
+  } else if (content && active === "Contact" && canEdit("contact")) {
+    body = <ContactTab data={content.contact} editable={canEdit("contact")} onSave={(d) => saveTab("contact", d)} />;
+  } else if (active === "Admin" && realIsOwner) {
+    body = <AdminTab preview={preview} onPreview={setPreview} />;
+  }
+
+  const head =
+    active === "Home" ? (
+      <div className="home-hero">
+        <div>
+          <h1 className={playIntro ? "hero-title intro-lead" : "hero-title"}>
+            {now ? greetingFor(now.getHours()) : "Welcome"}
+            {firstName ? (
+              <>
+                , <span className="accent">{firstName}</span>.
+              </>
+            ) : (
+              "."
+            )}
+          </h1>
+          <p className={playIntro ? "lede intro-support" : "lede"} style={{ "--delay": "90ms" } as React.CSSProperties}>
+            Your projects, your plans, your place.
+          </p>
+          {(dateText || weather) && (
+            <p className={playIntro ? "hero-meta intro-deco" : "hero-meta"} style={{ "--delay": "150ms" } as React.CSSProperties}>
+              {[dateText, weatherText(weather)].filter(Boolean).join(" · ")}
+            </p>
+          )}
+        </div>
+      </div>
+    ) : ownTitle.has(active) ? null : (
+      <div className="page-head">
+        <div>
+          <p className="eyebrow">{groupOf[active]}</p>
+          <h1 className="page-title">{active}</h1>
+        </div>
+      </div>
+    );
 
   return (
     <>
       <AliveBackground />
       <WeatherEffects onWeatherChange={setWeather} />
 
-      <main className="shell">
-        {preview && (
-          <div
-            style={{
-              position: "sticky",
-              top: 0,
-              zIndex: 40,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 12,
-              flexWrap: "wrap",
-              background: "var(--accent)",
-              color: "#1a0f08",
-              padding: "10px 16px",
-              borderRadius: 6,
-              marginBottom: 16,
-              fontFamily: sans,
-              fontSize: 13,
-            }}
-          >
-            <span>
-              <strong>Previewing as {preview.label}.</strong> Tabs and edit buttons now match exactly what they'd see. Anything you actually save while previewing still saves for real, under your own account.
-            </span>
-            <button
-              onClick={() => setPreview(null)}
-              style={{
-                ...buttonBase,
-                background: "#1a0f08",
-                color: "var(--accent)",
-                border: "none",
-                fontWeight: 600,
-                flexShrink: 0,
-              }}
-            >
-              Exit preview
-            </button>
-          </div>
-        )}
+      <div className="app">
+        <Sidebar groups={groups} activeKey={active} onSelect={select} top={sidebarTop} foot={sidebarFoot} />
 
-        <header className="topbar">
-          <div style={{ minWidth: 0 }}>
+        <main className="main">
+          <header className="mobile-top">
             <div className="brand">
-              <UserButton
-                appearance={{
-                  variables: {
-                    colorPrimary: "#e8703a",
-                    colorBackground: "var(--surface)",
-                    colorText: "var(--text)",
-                    colorTextSecondary: "var(--text-dim)",
-                    colorInputBackground: "var(--bg)",
-                    colorInputText: "var(--text)",
-                    fontFamily: sans,
-                  },
-                  elements: {
-                    avatarBox: { width: 30, height: 30 },
-                    userButtonPopoverCard: {
-                      border: "1px solid var(--surface-border)",
-                      boxShadow: "none",
-                    },
-                  },
-                }}
-              />
+              <UserButton appearance={userButtonAppearance} />
               <p className="site-name">isaacborland.com</p>
             </div>
-            <h1 className="greeting">
-              {now ? greetingFor(now.getHours()) : "Welcome"}
-              {firstName ? (
-                <>
-                  , <span className="accent">{firstName}</span>.
-                </>
-              ) : (
-                "."
-              )}
-            </h1>
-            <p className="subline">Your projects, your plans, your place.</p>
-            {realIsOwner && (
-              // Clerk keeps one sign-in per browser, so this signs you out here and opens the crew login,
-              // where you can sign in as a crew account (e.g. to see what crew see). Sign back in at /sign-in.
-              <SignOutButton redirectUrl="/crew">
-                <button
-                  type="button"
-                  data-testid="crew-switch"
-                  title="Signs you out of this account and opens the crew login"
-                  style={{
-                    fontFamily: mono,
-                    fontSize: 13,
-                    fontWeight: 600,
-                    marginTop: 10,
-                    padding: "9px 14px",
-                    borderRadius: 8,
-                    cursor: "pointer",
-                    border: "1px solid var(--surface-border)",
-                    background: "var(--surface)",
-                    color: "var(--accent)",
-                  }}
-                >
-                  Open crew page as another account →
-                </button>
-              </SignOutButton>
-            )}
-          </div>
+            <span className="mobile-time">{timeText}</span>
+          </header>
 
-          <div className="status">
-            <div className="clock">{now ? now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : " "}</div>
-            {now && <span className="status-line">{now.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}</span>}
-            {weather && <span className="status-line">{weatherText(weather)}</span>}
-            {seasonLabels[season] && <span className="chip">{seasonLabels[season]}</span>}
-          </div>
-        </header>
-
-        <nav className="tabs" aria-label="Sections">
-          {tabs.map((tab) => (
-            <button
-              key={tab}
-              className={tab === active ? "tab active" : "tab"}
-              aria-current={tab === active ? "page" : undefined}
-              onClick={() => {
-                navigate(tab);
-                window.scrollTo({ top: 0, behavior: "smooth" });
-              }}
-            >
-              <Icon name={tab} />
-              <span>{tab}</span>
-            </button>
-          ))}
-          {/* The room dashboard is its own full-screen page, not a tab. */}
-          <a href="/dashboard" className="tab" style={{ textDecoration: "none" }}>
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={1.8}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <rect x="3" y="4" width="18" height="13" rx="2" />
-              <path d="M8 21h8M12 17v4" />
-            </svg>
-            <span>Dashboard</span>
-          </a>
-        </nav>
-
-        <div className="tab-content" key={active}>
-          {usesContent && !content && !loadError && (
-            <Card>
-              <p style={{ fontFamily: sans, fontSize: 14, color: "var(--text-dim)", margin: 0 }}>Loading…</p>
-            </Card>
-          )}
-          {usesContent && loadError && (
-            <Card>
-              <p style={errorStyle}>{loadError}</p>
-            </Card>
-          )}
-
-          {usesContent && content && visibleBaseTabs.length === 0 && (
-            <Card>
-              <p style={{ fontFamily: sans, fontSize: 14, color: "var(--text-dim)", margin: 0 }}>
-                No tabs are available for this account yet.
-              </p>
-            </Card>
-          )}
-
-          {content && active === "Home" && canEdit("home") && (
-            <div className="home-grid">
-              <HomeTab data={content.home} editable={canEdit("home")} onSave={(d) => saveTab("home", d)} />
-              <TodayCard food={food} onOpenFood={() => navigate("Food")} />
+          {preview && (
+            <div className="banner" role="status">
+              <span>
+                <strong>Previewing as {preview.label}.</strong> Tabs and edit buttons now match exactly what they'd see. Anything you actually save while
+                previewing still saves for real, under your own account.
+              </span>
+              <Button size="sm" onClick={() => setPreview(null)}>
+                Exit preview
+              </Button>
             </div>
           )}
-          {content && active === "Projects" && canEdit("projects") && (
-            <ProjectsTab
-              projects={normalizeProjects(content.projects)}
-              editable={canEdit("projects")}
-              openId={openProject}
-              onOpen={(id, mode) => navigate("Projects", id, mode)}
-              onSave={(d) => saveTab("projects", d)}
-              onReplaced={(raw) => setContent((prev) => (prev ? { ...prev, projects: normalizeProjects(raw) } : prev))}
-            />
-          )}
-          {active === "Graffiti" && canEdit("graffiti") && <GraffitiTab isOwner={isOwner} canInvoice={isOwner || effectiveMetadata.tabAdmin?.invoice === true} />}
-          {active === "Work orders" && canEdit("workorders") && <JobsTab key="workorders" jtype="workorders" isOwner={isOwner} />}
-          {active === "Lawn care" && canEdit("lawn") && <JobsTab key="lawn" jtype="lawn" isOwner={isOwner} />}
-          {active === "Other jobs" && canEdit("otherjobs") && <JobsTab key="otherjobs" jtype="otherjobs" isOwner={isOwner} />}
-          {content && active === "Food" && canEdit("food") && (
-            <FoodTab data={food} editable={canEdit("food")} onSave={(d) => saveTab("food", d)} />
-          )}
-          {content && active === "About" && canEdit("about") && (
-            <AboutTab data={content.about} editable={canEdit("about")} onSave={(d) => saveTab("about", d)} />
-          )}
-          {content && active === "Contact" && canEdit("contact") && (
-            <ContactTab data={content.contact} editable={canEdit("contact")} onSave={(d) => saveTab("contact", d)} />
-          )}
-          {active === "Admin" && realIsOwner && <AdminTab preview={preview} onPreview={setPreview} />}
-        </div>
-      </main>
+
+          {/* One entrance per view: while the Home intro plays, the view itself holds still. */}
+          <div className={playIntro ? undefined : "view"} key={active} data-dir={dir}>
+            {head}
+            {body}
+          </div>
+        </main>
+
+        <BottomBar
+          groups={groups}
+          primary={barItems}
+          activeKey={active}
+          onSelect={select}
+          sheetExtra={crewSwitch ? <div style={{ padding: "8px 12px 0" }}>{crewSwitch}</div> : undefined}
+        />
+      </div>
     </>
   );
 }
