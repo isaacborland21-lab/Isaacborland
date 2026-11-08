@@ -1,100 +1,29 @@
 import { SignIn } from "@clerk/nextjs";
+import AliveBackground from "../../AliveBackground";
+import { signInAppearance } from "../../ui/clerkAppearance";
 
-const mono = "'IBM Plex Mono', monospace";
-const sans = "'IBM Plex Sans', sans-serif";
-
+// Seen once per visit, so it gets the site's one real entrance (see the
+// .signin-* rules in globals.css): the domain fades in place, the title
+// leads, and the line, card and crew button follow with less travel.
 export default function SignInPage() {
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "64px 24px",
-      }}
-    >
-      <div style={{ maxWidth: 420, width: "100%", textAlign: "center", marginBottom: 32 }}>
-        <p
-          style={{
-            fontFamily: mono,
-            fontSize: 13,
-            letterSpacing: "0.02em",
-            color: "var(--text-dim)",
-            margin: "0 0 16px 0",
-          }}
-        >
-          isaacborland.com
-        </p>
-        <h1
-          style={{
-            fontFamily: mono,
-            fontWeight: 600,
-            fontSize: 26,
-            lineHeight: 1.3,
-            margin: "0 0 12px 0",
-          }}
-        >
-          Personal project hub
-        </h1>
-        <p
-          style={{
-            fontFamily: sans,
-            fontSize: 14,
-            lineHeight: 1.6,
-            color: "var(--text-dim)",
-            margin: 0,
-          }}
-        >
-          Invite-only. If you don't have an invite, this isn't the place for
-          you yet.
-        </p>
-      </div>
+    <>
+      <AliveBackground />
+      <main className="signin">
+        <div className="signin-head">
+          <p className="signin-domain">isaacborland.com</p>
+          <h1 className="hero-title">Personal project hub</h1>
+          <p className="lede">Invite-only. If you don't have an invite, this isn't the place for you yet.</p>
+        </div>
 
-      <SignIn
-        appearance={{
-          variables: {
-            colorPrimary: "#e8703a",
-            colorBackground: "var(--surface)",
-            colorText: "var(--text)",
-            colorTextSecondary: "var(--text-dim)",
-            colorInputBackground: "var(--bg)",
-            colorInputText: "var(--text)",
-            borderRadius: "6px",
-            fontFamily: sans,
-          },
-          elements: {
-            card: {
-              border: "1px solid var(--surface-border)",
-              boxShadow: "none",
-            },
-            headerTitle: { fontFamily: mono },
-            footer: { display: "none" },
-          },
-        }}
-      />
+        <div className="signin-card">
+          <SignIn appearance={signInAppearance} />
+        </div>
 
-      <a
-        href="/crew"
-        style={{
-          marginTop: 28,
-          display: "block",
-          width: "100%",
-          maxWidth: 400,
-          textAlign: "center",
-          padding: "14px 20px",
-          borderRadius: 10,
-          border: "1px solid var(--accent)",
-          color: "var(--accent)",
-          fontFamily: mono,
-          fontWeight: 600,
-          fontSize: 15,
-          textDecoration: "none",
-        }}
-      >
-        Crew Login
-      </a>
-    </main>
+        <a href="/crew" className="btn btn-secondary btn-lg signin-crew" style={{ color: "var(--accent)", borderColor: "var(--accent-line)" }}>
+          Crew login
+        </a>
+      </main>
+    </>
   );
 }

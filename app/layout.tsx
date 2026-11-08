@@ -1,19 +1,11 @@
 import type { Metadata, Viewport } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
+import Toaster from "./ui/Toaster";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Isaac Borland",
   description: "Personal site and project hub.",
-};
-
-// viewport-fit=cover lets the mobile bottom bar sit above the iPhone home
-// indicator via env(safe-area-inset-bottom).
-export const viewport: Viewport = {
-  width: "device-width",
-  initialScale: 1,
-  viewportFit: "cover",
-  themeColor: "#1d130c",
 };
 
 type Season = "fall" | "winter" | "spring" | "summer";
@@ -24,6 +16,28 @@ function getSeason(date: Date): Season {
   if (month >= 2 && month <= 4) return "spring";
   if (month >= 5 && month <= 7) return "summer";
   return "fall"; // Sep, Oct, Nov
+}
+
+// The phone's status bar takes this color, so it matches the season's background.
+const seasonBg: Record<Season, string> = {
+  fall: "#1d130c",
+  winter: "#08111f",
+  spring: "#0c1811",
+  summer: "#0a181e",
+};
+
+// viewport-fit=cover lets the mobile bars sit clear of the notch and home
+// indicator via env(safe-area-inset-*). interactive-widget makes Android's
+// keyboard resize the layout the way iOS does.
+export function generateViewport(): Viewport {
+  return {
+    width: "device-width",
+    initialScale: 1,
+    viewportFit: "cover",
+    interactiveWidget: "resizes-content",
+    themeColor: seasonBg[getSeason(new Date())],
+    colorScheme: "dark",
+  };
 }
 
 export default function RootLayout({
@@ -48,7 +62,10 @@ export default function RootLayout({
             rel="stylesheet"
           />
         </head>
-        <body>{children}</body>
+        <body>
+          {children}
+          <Toaster />
+        </body>
       </html>
     </ClerkProvider>
   );
