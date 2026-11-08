@@ -7,10 +7,36 @@
 :root {
   --accent: #e8703a;
   --accent-dim: #b8552a;
+  --accent-soft: rgba(232, 112, 58, 0.14);
+  --accent-line: rgba(232, 112, 58, 0.42);
+  --on-accent: #1a0f08;
+  --danger: #f08a7e;
+  --success: #8fbf7f;
   --off-white: #f5ede4;
   --off-white-dim: #a9b4c4;
   --mono: "IBM Plex Mono", ui-monospace, monospace;
   --sans: "IBM Plex Sans", system-ui, sans-serif;
+
+  /* Motion. Every animation on the site takes its curve and duration from here. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1); /* entering, exiting, presses */
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1); /* things moving on screen */
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1); /* sheets */
+  --dur-press: 140ms;
+  --dur-fast: 180ms;
+  --dur-base: 240ms;
+
+  /* Shape */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 20px;
+  --r-pill: 999px;
+
+  /* Lines on glass */
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.14);
+
+  --sidebar-w: 248px;
+  --bottombar-h: 68px;
 }
 
 /* Fall — ember, rust and amber */
@@ -73,8 +99,17 @@
   --particle: #fff1c1;
 }
 
+/* =========================================================
+   Baseline (incl. the phone fixes that make it feel installed)
+   ========================================================= */
+
 * {
   box-sizing: border-box;
+}
+
+html {
+  -webkit-tap-highlight-color: transparent; /* our own :active states replace the gray flash */
+  -webkit-text-size-adjust: 100%;
 }
 
 html,
@@ -86,6 +121,7 @@ body {
 
 body {
   min-height: 100vh;
+  min-height: 100dvh;
   background: var(--bg, #0b1d33);
   color: var(--text, #edeff2);
   transition: background 0.4s ease, color 0.4s ease;
@@ -96,6 +132,21 @@ a {
   color: var(--accent);
 }
 
+button,
+a,
+[role="button"],
+summary,
+label:has(> input[type="checkbox"]) {
+  touch-action: manipulation; /* no double-tap-zoom wait before the click */
+}
+
+button,
+[role="button"] {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
@@ -103,6 +154,15 @@ select:focus-visible,
 textarea:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* iOS zooms into any input under 16px and never zooms back out. */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
 }
 
 /* =========================================================
@@ -124,8 +184,8 @@ textarea:focus-visible {
 .parallax {
   position: absolute;
   inset: -8vmax;
-  transform: translate3d(calc(var(--mx, 0) * -28px), calc(var(--my, 0) * -28px), 0);
-  transition: transform 0.9s cubic-bezier(0.2, 0.7, 0.2, 1);
+  transform: translate3d(calc(var(--mx, 0) * -16px), calc(var(--my, 0) * -16px), 0);
+  transition: transform 0.9s var(--ease-out);
 }
 
 .blob {
@@ -133,8 +193,8 @@ textarea:focus-visible {
   width: 58vmax;
   height: 58vmax;
   border-radius: 50%;
-  filter: blur(80px) saturate(135%);
-  opacity: 0.58;
+  filter: blur(80px) saturate(130%);
+  opacity: 0.46;
   mix-blend-mode: screen;
   will-change: transform;
 }
@@ -143,15 +203,15 @@ textarea:focus-visible {
   background: radial-gradient(circle at 35% 35%, var(--blob-1), transparent 64%);
   top: -14vmax;
   left: -10vmax;
-  animation: drift-a 38s ease-in-out infinite alternate;
+  animation: drift-a 48s ease-in-out infinite alternate;
 }
 
 .blob.b2 {
   background: radial-gradient(circle at 60% 40%, var(--blob-2), transparent 62%);
   top: 20vh;
   right: -18vmax;
-  opacity: 0.5;
-  animation: drift-b 46s ease-in-out infinite alternate;
+  opacity: 0.4;
+  animation: drift-b 58s ease-in-out infinite alternate;
 }
 
 .blob.b3 {
@@ -160,8 +220,8 @@ textarea:focus-visible {
   height: 38vmax;
   bottom: -12vmax;
   left: 18vw;
-  opacity: 0.42;
-  animation: drift-c 32s ease-in-out infinite alternate;
+  opacity: 0.32;
+  animation: drift-c 42s ease-in-out infinite alternate;
 }
 
 .blob.b5 {
@@ -170,21 +230,21 @@ textarea:focus-visible {
   height: 34vmax;
   top: 30vh;
   left: 38vw;
-  opacity: 0.22;
-  animation: breathe 18s ease-in-out infinite alternate;
+  opacity: 0.16;
+  animation: breathe 26s ease-in-out infinite alternate;
 }
 
 @keyframes breathe {
-  0% { transform: translate3d(0, 0, 0) scale(0.85); opacity: 0.14; }
-  100% { transform: translate3d(-6vw, 6vh, 0) scale(1.15); opacity: 0.3; }
+  0% { transform: translate3d(0, 0, 0) scale(0.9); opacity: 0.1; }
+  100% { transform: translate3d(-6vw, 6vh, 0) scale(1.1); opacity: 0.22; }
 }
 
 .blob.b4 {
   background: radial-gradient(circle at 50% 50%, var(--blob-4), transparent 62%);
   top: 45vh;
   left: -16vmax;
-  opacity: 0.5;
-  animation: drift-d 52s ease-in-out infinite alternate;
+  opacity: 0.4;
+  animation: drift-d 64s ease-in-out infinite alternate;
 }
 
 @keyframes drift-a {
@@ -231,9 +291,9 @@ textarea:focus-visible {
 
 @keyframes mote-rise {
   0% { transform: translate3d(0, 0, 0); opacity: 0; }
-  12% { opacity: 0.75; }
+  12% { opacity: 0.6; }
   50% { transform: translate3d(var(--drift, 3vw), -55vh, 0); }
-  88% { opacity: 0.45; }
+  88% { opacity: 0.35; }
   100% { transform: translate3d(calc(var(--drift, 3vw) * -0.5), -112vh, 0); opacity: 0; }
 }
 
@@ -262,67 +322,701 @@ textarea:focus-visible {
 }
 
 /* =========================================================
-   Layout shell (desktop first; mobile overrides at the bottom)
+   App shell: sidebar + content on desktop, top bar + bottom bar on phones
    ========================================================= */
 
-.shell {
+.app {
   position: relative;
   z-index: 1;
-  min-height: 100vh;
-  max-width: 1240px;
+  display: grid;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  gap: 40px;
+  max-width: 1480px;
+  min-height: 100dvh;
   margin: 0 auto;
-  padding: 44px 40px 72px;
+  padding: 0 40px 0 24px;
 }
 
-.topbar {
+.sidebar {
+  position: sticky;
+  top: 0;
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 24px;
-  margin-bottom: 32px;
+  flex-direction: column;
+  gap: 28px;
+  height: 100dvh;
+  padding: 28px 0 24px;
+  overflow-y: auto;
+  scrollbar-width: none;
 }
 
-.brand {
+.sidebar::-webkit-scrollbar {
+  display: none;
+}
+
+.sidebar-brand {
   display: flex;
   align-items: center;
   gap: 12px;
+  padding: 0 12px;
 }
 
-.site-name {
+.sidebar-foot {
+  margin-top: auto;
+  padding: 16px 12px 0;
+  border-top: 1px solid var(--line);
   font-family: var(--mono);
-  font-size: 14px;
-  letter-spacing: 0.04em;
+}
+
+.main {
+  min-width: 0;
+  padding: 36px 0 80px;
+}
+
+.mobile-top {
+  display: none;
+}
+
+.bottombar {
+  display: none;
+}
+
+/* ---------- Nav groups (sidebar) ---------- */
+
+.nav-group + .nav-group {
+  margin-top: 20px;
+}
+
+.nav-group-label {
+  margin: 0 0 6px;
+  padding: 0 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--text-dim);
+  opacity: 0.75;
+}
+
+/* A nav list is drawn twice: the plain list, and an "active" copy on top
+   that's clipped to the active item. Moving the clip slides the highlight,
+   and the label color changes in perfect sync because it's the same reveal. */
+.nav-list {
+  position: relative;
+}
+
+.nav-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.greeting {
-  font-family: var(--mono);
-  font-weight: 600;
-  font-size: clamp(30px, 3.6vw, 50px);
-  line-height: 1.08;
-  letter-spacing: -0.015em;
-  margin: 22px 0 8px;
-}
-
-.greeting .accent {
-  color: var(--accent);
-}
-
-.subline {
-  margin: 0;
-  font-size: 16px;
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: none;
   color: var(--text-dim);
+  font-family: var(--sans);
+  font-size: 15px;
+  text-align: left;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color var(--dur-fast) ease, background-color var(--dur-fast) ease, transform var(--dur-press) var(--ease-out);
 }
 
-.status {
-  text-align: right;
-  font-family: var(--mono);
+.nav-item svg {
+  width: 19px;
+  height: 19px;
   flex-shrink: 0;
 }
 
+.nav-item:active {
+  transform: scale(0.97);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .nav-item:hover {
+    color: var(--text);
+    background-color: rgba(255, 255, 255, 0.05);
+  }
+}
+
+.nav-active-copy {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  clip-path: var(--clip, inset(0 0 100% 0));
+}
+
+.nav-active-copy[data-ready="true"] {
+  transition: clip-path var(--dur-base) var(--ease-in-out);
+}
+
+.nav-active-copy .nav-item {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+  border-radius: 0; /* the clip draws the rounded corners */
+}
+
+/* ---------- Bottom bar (phones) ---------- */
+
+.bottombar-inner {
+  position: relative;
+  display: flex;
+  padding: 6px;
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  border: 1px solid var(--line-strong);
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  box-shadow: 0 18px 44px -12px rgba(0, 0, 0, 0.7);
+}
+
+.bottombar .nav-items {
+  flex-direction: row;
+  gap: 2px;
+  width: 100%;
+}
+
+.bottombar .nav-items > li {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.bottombar .nav-item {
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  height: 54px;
+  padding: 0 4px;
+  border-radius: 18px;
+  font-size: 11px;
+  text-align: center;
+}
+
+.bottombar .nav-item svg {
+  width: 22px;
+  height: 22px;
+}
+
+.bottombar .nav-item span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bottombar .nav-list {
+  width: 100%;
+}
+
+/* ---------- "More" sheet (Vaul) ---------- */
+
+.sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 61;
+  display: flex;
+  flex-direction: column;
+  max-height: 86dvh;
+  padding: 10px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+  border-radius: 24px 24px 0 0;
+  background: color-mix(in srgb, var(--surface) 92%, var(--bg));
+  border-top: 1px solid var(--line-strong);
+  box-shadow: 0 -20px 60px -20px rgba(0, 0, 0, 0.8);
+  outline: none;
+}
+
+.sheet-handle {
+  width: 40px;
+  height: 5px;
+  margin: 0 auto 14px;
+  border-radius: var(--r-pill);
+  background: var(--line-strong);
+}
+
+.sheet-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.sheet .nav-item {
+  height: 48px;
+  font-size: 16px;
+}
+
+.sheet .nav-item[aria-current="page"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* =========================================================
+   Page structure inside .main
+   ========================================================= */
+
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.page-title {
+  margin: 0;
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: clamp(26px, 2.6vw, 34px);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.hero-title {
+  margin: 0;
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: clamp(32px, 4.4vw, 56px);
+  line-height: 1.04;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+
+.hero-title .accent {
+  color: var(--accent);
+}
+
+.lede {
+  margin: 10px 0 0;
+  max-width: 52ch;
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+
+.muted {
+  color: var(--text-dim);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* View change: the new view arrives from the side you navigated toward.
+   Tab switching happens many times a day, so it's short and there is no
+   exit — the old view is gone instantly and nothing waits on it. */
+.view {
+  animation: view-in var(--dur-base) var(--ease-out) both;
+}
+
+.view[data-dir="back"] {
+  --from-x: -10px;
+}
+
+@keyframes view-in {
+  from {
+    opacity: 0;
+    transform: translate3d(var(--from-x, 10px), 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Tabs that haven't been rebuilt yet were sized for a bigger zoom on wide screens. */
+@media (min-width: 1280px) {
+  .legacy-zoom { zoom: 1.08; }
+}
+
+@media (min-width: 1600px) {
+  .legacy-zoom { zoom: 1.16; }
+}
+
+/* First load only: the Home greeting arrives as one wave. The greeting
+   leads with the longest rise; the line under it and the cards follow with
+   less travel and shrinking gaps (0 → 90 → 150 → 190ms); the date/weather
+   line just fades in place. Delays are set per element via --delay. */
+.intro-lead {
+  animation: intro-in 600ms var(--ease-out) both;
+}
+
+.intro-support {
+  animation: rise-sm 520ms var(--ease-out) var(--delay, 0ms) both;
+}
+
+.intro-deco {
+  animation: fade-in 500ms ease var(--delay, 0ms) both;
+}
+
+.hero-meta {
+  margin: 12px 0 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+@media (min-width: 901px) {
+  .hero-meta { display: none; } /* the sidebar already shows it */
+}
+
+@keyframes intro-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 12px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* =========================================================
+   Components
+   ========================================================= */
+
+/* Frosted-glass card */
+.card {
+  position: relative;
+  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 66%, transparent);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 28px;
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  box-shadow:
+    0 24px 60px -24px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+.card-corner {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+}
+
+/* Swapping a card between reading and editing: a quick fade so the content
+   doesn't teleport. The card itself stays put (one object, new contents). */
+.swap {
+  animation: swap-in var(--dur-fast) var(--ease-out) both;
+}
+
+@keyframes swap-in {
+  from { opacity: 0; transform: translate3d(0, 4px, 0); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---------- Buttons ---------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    transform var(--dur-press) var(--ease-out),
+    background-color var(--dur-fast) ease,
+    border-color var(--dur-fast) ease,
+    color var(--dur-fast) ease,
+    opacity var(--dur-fast) ease;
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+  box-shadow: 0 8px 22px -10px rgba(232, 112, 58, 0.8);
+}
+
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.btn-quiet {
+  height: auto;
+  padding: 4px 6px;
+  margin: -4px -6px;
+  background: none;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.btn-sm {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.btn-lg {
+  height: 48px;
+  padding: 0 20px;
+  border-radius: var(--r-md);
+  font-size: 15px;
+}
+
+.btn-block {
+  width: 100%;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .btn-primary:hover:not(:disabled) {
+    background: #ee7e4b;
+  }
+  .btn-secondary:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.22);
+  }
+  .btn-quiet:hover:not(:disabled) {
+    color: #f29a6d;
+  }
+}
+
+/* The label blurs briefly while it changes ("Save" → "Saving…"), so the
+   two words read as one morph instead of a swap. */
+.btn-label {
+  transition: filter var(--dur-fast) ease, opacity var(--dur-fast) ease;
+}
+
+.btn[data-busy="true"] .btn-label {
+  filter: blur(0.6px);
+  opacity: 0.8;
+}
+
+/* ---------- Fields ---------- */
+
+.field-label {
+  display: block;
+  margin: 0 0 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.input {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.45;
+  transition: border-color var(--dur-fast) ease, box-shadow var(--dur-fast) ease, background-color var(--dur-fast) ease;
+}
+
+.input::placeholder {
+  color: var(--text-dim);
+  opacity: 0.7;
+}
+
+.input:focus,
+.input:focus-visible {
+  outline: none;
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+}
+
+textarea.input {
+  resize: vertical;
+  min-height: 96px;
+}
+
+.input-mono {
+  font-family: var(--mono);
+}
+
+.form-error {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--danger);
+}
+
+/* ---------- Toggle chips (checkbox inside a pill) ---------- */
+
+.toggle-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  font-size: 13px;
+  color: var(--text-dim);
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  transition:
+    transform var(--dur-press) var(--ease-out),
+    background-color var(--dur-fast) ease,
+    border-color var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.toggle-chip input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+
+.toggle-chip:active {
+  transform: scale(0.96);
+}
+
+.toggle-chip:has(input:checked) {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+
+.toggle-chip:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.toggle-chip:has(input:disabled) {
+  opacity: 0.6;
+}
+
+.toggle-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.35;
+  transition: opacity var(--dur-fast) ease, transform var(--dur-fast) var(--ease-out);
+  transform: scale(0.8);
+}
+
+.toggle-chip:has(input:checked) .toggle-dot {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* ---------- Skeleton (loading placeholders) ---------- */
+
+.skeleton {
+  display: block;
+  height: 14px;
+  border-radius: 6px;
+  background:
+    linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.07), transparent) 0 0 / 200% 100% no-repeat,
+    rgba(255, 255, 255, 0.06);
+  animation: shimmer 1.3s linear infinite;
+}
+
+@keyframes shimmer {
+  from { background-position: 150% 0, 0 0; }
+  to { background-position: -50% 0, 0 0; }
+}
+
+/* ---------- Banner (owner "previewing as") ---------- */
+
+.banner {
+  position: sticky;
+  top: 12px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+  padding: 12px 14px 12px 18px;
+  border-radius: var(--r-md);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 13px;
+  line-height: 1.45;
+  box-shadow: 0 14px 34px -14px rgba(232, 112, 58, 0.9);
+  animation: banner-in var(--dur-base) var(--ease-out) both;
+}
+
+@keyframes banner-in {
+  from { opacity: 0; transform: translate3d(0, -8px, 0); }
+  to { opacity: 1; transform: none; }
+}
+
+.banner .btn {
+  background: var(--on-accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ---------- Status (clock, date, weather) ---------- */
+
 .clock {
-  font-size: 40px;
+  font-family: var(--mono);
+  font-size: 30px;
   font-weight: 600;
   letter-spacing: -0.02em;
   line-height: 1;
@@ -331,8 +1025,9 @@ textarea:focus-visible {
 
 .status-line {
   display: block;
-  margin-top: 8px;
-  font-size: 13px;
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-size: 12px;
   color: var(--text-dim);
 }
 
@@ -348,97 +1043,38 @@ textarea:focus-visible {
   background: rgba(232, 112, 58, 0.12);
 }
 
-/* Tab navigation: a floating pill bar on desktop, a bottom bar on mobile. */
-.tabs {
-  display: flex;
-  gap: 6px;
-  width: max-content;
-  max-width: 100%;
-  overflow-x: auto;
-  padding: 6px;
-  margin-bottom: 28px;
-  border-radius: 999px;
-  background: rgba(10, 10, 14, 0.35);
-  background: color-mix(in srgb, var(--surface) 55%, transparent);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(16px) saturate(140%);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
-  box-shadow: 0 12px 40px -18px rgba(0, 0, 0, 0.6);
-}
-
-.tab {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 20px;
+.switch-account {
+  display: inline-block;
+  margin-top: 14px;
+  padding: 0;
   border: 0;
-  border-radius: 999px;
   background: none;
+  font-family: var(--mono);
+  font-size: 12px;
+  text-align: left;
   color: var(--text-dim);
-  font-family: var(--sans);
-  font-size: 15px;
-  white-space: nowrap;
   cursor: pointer;
-  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.25s ease, transform 0.15s ease;
+  transition: color var(--dur-fast) ease;
 }
 
-.tab svg {
-  width: 18px;
-  height: 18px;
-  flex-shrink: 0;
+@media (hover: hover) and (pointer: fine) {
+  .switch-account:hover {
+    color: var(--accent);
+  }
 }
 
-.tab:hover {
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.06);
+/* =========================================================
+   Home
+   ========================================================= */
+
+.home-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 24px;
+  margin-bottom: 28px;
 }
 
-.tab:active {
-  transform: scale(0.97);
-}
-
-.tab.active {
-  background: var(--accent);
-  color: #1a0f08;
-  font-weight: 600;
-  box-shadow: 0 8px 26px -8px rgba(232, 112, 58, 0.75);
-}
-
-/* Content: bigger on big screens. `zoom` scales the tabs' pixel sizes. */
-.tab-content {
-  animation: rise-in 0.45s cubic-bezier(0.2, 0.7, 0.2, 1);
-}
-
-@media (min-width: 1100px) {
-  .tab-content { zoom: 1.12; }
-}
-
-@media (min-width: 1600px) {
-  .shell { max-width: 1440px; }
-  .tab-content { zoom: 1.22; }
-}
-
-@keyframes rise-in {
-  from { opacity: 0; transform: translate3d(0, 12px, 0); }
-  to { opacity: 1; transform: none; }
-}
-
-/* Frosted-glass card */
-.card {
-  position: relative;
-  background: var(--surface);
-  background: color-mix(in srgb, var(--surface) 66%, transparent);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 20px;
-  padding: 28px;
-  backdrop-filter: blur(18px) saturate(140%);
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
-  box-shadow:
-    0 24px 60px -24px rgba(0, 0, 0, 0.6),
-    inset 0 1px 0 rgba(255, 255, 255, 0.07);
-}
-
-/* Home: main card + a "Today" card side by side on desktop */
 .home-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
@@ -446,13 +1082,38 @@ textarea:focus-visible {
   align-items: start;
 }
 
+.home-headline {
+  margin: 0 0 12px;
+  padding-right: 48px;
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: 28px;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+
+.prose {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--text-dim);
+  white-space: pre-line;
+}
+
 .today-meal {
   padding: 12px 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--line);
 }
 
 .today-meal:first-of-type {
   border-top: 0;
+}
+
+.today-meal-name {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
 }
 
 /* Food tab: lunch and dinner side by side on wide screens */
@@ -460,6 +1121,24 @@ textarea:focus-visible {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 32px;
+}
+
+/* =========================================================
+   Admin
+   ========================================================= */
+
+.admin-user {
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+}
+
+.admin-user-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-bottom: 10px;
 }
 
 /* =========================================================
@@ -483,16 +1162,22 @@ textarea:focus-visible {
   color: var(--text);
   text-decoration: none;
   cursor: pointer;
-  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.25s ease;
+  transition: transform var(--dur-fast) var(--ease-out), border-color var(--dur-fast) ease, box-shadow var(--dur-base) ease;
 }
 
-.project-card:hover {
-  transform: translateY(-3px);
-  border-color: rgba(232, 112, 58, 0.45);
-  box-shadow:
-    0 30px 60px -24px rgba(0, 0, 0, 0.7),
-    0 0 0 1px rgba(232, 112, 58, 0.15),
-    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+.project-card:active {
+  transform: scale(0.985);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .project-card:hover {
+    transform: translateY(-3px);
+    border-color: rgba(232, 112, 58, 0.45);
+    box-shadow:
+      0 30px 60px -24px rgba(0, 0, 0, 0.7),
+      0 0 0 1px rgba(232, 112, 58, 0.15),
+      inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  }
 }
 
 .progress {
@@ -507,7 +1192,7 @@ textarea:focus-visible {
   border-radius: 999px;
   background: linear-gradient(90deg, var(--accent), #f2b35a);
   box-shadow: 0 0 12px rgba(232, 112, 58, 0.55);
-  transition: width 0.6s cubic-bezier(0.2, 0.7, 0.2, 1);
+  transition: width 0.6s var(--ease-out);
 }
 
 .form-grid {
@@ -566,11 +1251,17 @@ textarea:focus-visible {
   text-decoration: none;
   border: 1px solid rgba(232, 112, 58, 0.4);
   background: rgba(232, 112, 58, 0.1);
-  transition: background 0.2s ease;
+  transition: background-color var(--dur-fast) ease, transform var(--dur-press) var(--ease-out);
 }
 
-.link-chip:hover {
-  background: rgba(232, 112, 58, 0.2);
+.link-chip:active {
+  transform: scale(0.97);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .link-chip:hover {
+    background: rgba(232, 112, 58, 0.2);
+  }
 }
 
 .vote {
@@ -589,12 +1280,14 @@ textarea:focus-visible {
   font-size: 13px;
   cursor: pointer;
   flex-shrink: 0;
-  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
+  transition: background-color var(--dur-fast) ease, color var(--dur-fast) ease, border-color var(--dur-fast) ease, transform var(--dur-press) var(--ease-out);
 }
 
-.vote:hover {
-  color: var(--text);
-  border-color: rgba(232, 112, 58, 0.5);
+@media (hover: hover) and (pointer: fine) {
+  .vote:hover {
+    color: var(--text);
+    border-color: rgba(232, 112, 58, 0.5);
+  }
 }
 
 .vote:active {
@@ -602,7 +1295,7 @@ textarea:focus-visible {
 }
 
 .vote.voted {
-  color: #1a0f08;
+  color: var(--on-accent);
   background: var(--accent);
   border-color: var(--accent);
   font-weight: 600;
@@ -616,88 +1309,130 @@ textarea:focus-visible {
 }
 
 /* =========================================================
-   Mobile
+   Crew page shell (rebuilt in a later phase; kept as it was)
    ========================================================= */
 
-@media (max-width: 720px) {
+.shell {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 44px 40px 72px;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24px;
+  margin-bottom: 32px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.site-name {
+  font-family: var(--mono);
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+.tab-content {
+  animation: view-in var(--dur-base) var(--ease-out) both;
+}
+
+@media (min-width: 1100px) {
+  .tab-content { zoom: 1.12; }
+}
+
+@media (min-width: 1600px) {
+  .shell { max-width: 1440px; }
+  .tab-content { zoom: 1.22; }
+}
+
+/* =========================================================
+   Phones and small tablets
+   ========================================================= */
+
+@media (max-width: 900px) {
+  .app {
+    display: block;
+    padding: 0 14px;
+  }
+
+  .sidebar {
+    display: none;
+  }
+
+  .main {
+    padding: 8px 0 calc(var(--bottombar-h) + 40px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Translucent top bar; content scrolls underneath. */
+  .mobile-top {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 0 -14px;
+    padding: calc(10px + env(safe-area-inset-top, 0px)) 14px 10px;
+    background: color-mix(in srgb, var(--bg) 70%, transparent);
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    -webkit-mask-image: linear-gradient(to bottom, #000 82%, transparent);
+    mask-image: linear-gradient(to bottom, #000 82%, transparent);
+  }
+
+  .mobile-top .site-name {
+    font-size: 13px;
+  }
+
+  .mobile-time {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-dim);
+  }
+
+  .bottombar {
+    position: fixed;
+    z-index: 30;
+    display: block;
+    left: 10px;
+    right: 10px;
+    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .home-hero {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+
+  .hero-title {
+    font-size: 32px;
+  }
+
+  .page-head {
+    margin-bottom: 16px;
+  }
+
   .shell {
     padding: 18px 14px calc(104px + env(safe-area-inset-bottom));
   }
 
   .topbar {
     margin-bottom: 18px;
-  }
-
-  .greeting {
-    font-size: 27px;
-    margin: 14px 0 4px;
-  }
-
-  .subline {
-    font-size: 14px;
-  }
-
-  .clock {
-    font-size: 22px;
-  }
-
-  .status-line {
-    font-size: 11px;
-    margin-top: 6px;
-  }
-
-  .chip {
-    font-size: 11px;
-    padding: 3px 9px;
-  }
-
-  /* Bottom tab bar, thumb-reachable */
-  .tabs {
-    position: fixed;
-    z-index: 30;
-    left: 10px;
-    right: 10px;
-    bottom: calc(10px + env(safe-area-inset-bottom));
-    width: auto;
-    margin: 0;
-    padding: 6px;
-    gap: 2px;
-    justify-content: space-between;
-    overflow-x: auto; /* the owner can have 11 tabs: the bar scrolls sideways instead of squeezing the labels */
-    scrollbar-width: none;
-    border-radius: 24px;
-    background: color-mix(in srgb, var(--surface) 80%, transparent);
-    box-shadow: 0 16px 40px -10px rgba(0, 0, 0, 0.7);
-  }
-
-  .tab {
-    flex: 1 0 auto; /* size to the label; with many tabs the bar scrolls sideways */
-    min-width: 0;
-    flex-direction: column;
-    gap: 3px;
-    padding: 8px 7px;
-    border-radius: 18px;
-    font-size: 11px;
-  }
-
-  .tab svg {
-    width: 22px;
-    height: 22px;
-  }
-
-  /* up to 8 items (owner sees every tab + Dashboard): never let a label push the bar wider */
-  .tab span {
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .tabs::-webkit-scrollbar {
-    display: none;
-  }
-
-  .tab.active {
-    box-shadow: 0 6px 18px -6px rgba(232, 112, 58, 0.75);
   }
 
   .card {
@@ -722,20 +1457,14 @@ textarea:focus-visible {
     min-height: 0;
   }
 
-  .project-card:hover {
-    transform: none;
-  }
-
   /* Lighter background on phones: smaller blur is much cheaper. */
   .blob {
     filter: blur(55px);
   }
 
-  /* Comfortable tap targets and no iOS zoom-on-focus. */
-  input,
-  select,
-  textarea {
-    font-size: 16px !important;
+  .chip {
+    font-size: 11px;
+    padding: 3px 9px;
   }
 }
 
@@ -799,7 +1528,77 @@ textarea:focus-visible {
 }
 
 /* =========================================================
-   Reduced motion: keep the colors, drop the movement.
+   Sign-in
+   ========================================================= */
+
+.signin {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100svh;
+  padding: calc(48px + env(safe-area-inset-top, 0px)) 20px calc(48px + env(safe-area-inset-bottom, 0px));
+}
+
+.signin-head {
+  width: 100%;
+  max-width: 420px;
+  margin-bottom: 28px;
+  text-align: center;
+}
+
+.signin-head .hero-title {
+  font-size: clamp(30px, 6vw, 40px);
+}
+
+.signin-head .lede {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.signin-domain {
+  margin: 0 0 18px;
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+
+.signin-card {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.signin-crew {
+  width: 100%;
+  max-width: 400px;
+  margin-top: 24px;
+}
+
+/* One entrance, seen once per visit: domain fades in place (decoration),
+   the title leads with the longest rise, the rest follow with less. */
+.signin-domain { animation: fade-in 500ms ease both; }
+.signin-head .hero-title { animation: intro-in 600ms var(--ease-out) 40ms both; }
+.signin-head .lede { animation: intro-in 520ms var(--ease-out) 130ms both; }
+.signin-card { animation: rise-sm 520ms var(--ease-out) 200ms both; }
+.signin-crew { animation: rise-sm 480ms var(--ease-out) 260ms both; }
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes rise-sm {
+  from { opacity: 0; transform: translate3d(0, 8px, 0); }
+  to { opacity: 1; transform: none; }
+}
+
+/* =========================================================
+   Reduced motion: keep the colors and fades, drop the movement.
+   Reduced transparency: frostier, solid surfaces.
    ========================================================= */
 
 @media (prefers-reduced-motion: reduce) {
@@ -808,7 +1607,7 @@ textarea:focus-visible {
   .snowflake,
   .raindrop,
   .sun-glow,
-  .tab-content {
+  .skeleton {
     animation: none !important;
   }
   .mote {
@@ -817,16 +1616,39 @@ textarea:focus-visible {
   .parallax {
     transform: none !important;
   }
+  .view,
+  .tab-content,
+  .swap,
+  .banner,
+  .intro-lead,
+  .intro-support,
+  .intro-deco,
+  .signin-head .hero-title,
+  .signin-head .lede,
+  .signin-card,
+  .signin-crew {
+    animation: fade-in 200ms ease both !important;
+  }
+  .nav-active-copy[data-ready="true"] {
+    transition: clip-path 1ms linear;
+  }
+  .btn:active:not(:disabled),
+  .nav-item:active,
+  .toggle-chip:active,
+  .project-card:active,
+  .link-chip:active,
+  .vote:active {
+    transform: none;
+  }
 }
 
-/* Very narrow phones: the owner's bar can hold 8 items, so trim the type a little */
-@media (max-width: 380px) {
-  .tab {
-    font-size: 10px;
-  }
-
-  .tab svg {
-    width: 20px;
-    height: 20px;
+@media (prefers-reduced-transparency: reduce) {
+  .card,
+  .bottombar-inner,
+  .mobile-top,
+  .sheet {
+    background: var(--surface);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 }

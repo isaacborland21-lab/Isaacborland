@@ -25,8 +25,10 @@ export default function AliveBackground() {
   const [motes, setMotes] = useState<Mote[]>([]);
 
   useEffect(() => {
+    // Kept sparse on purpose: the background sets the mood, and the
+    // interface's own motion (presses, nav, views) is what should be noticed.
     const small = window.matchMedia("(max-width: 720px)").matches;
-    const count = small ? 10 : 22;
+    const count = small ? 6 : 12;
     setMotes(
       Array.from({ length: count }, () => ({
         left: Math.random() * 100,
