@@ -158,11 +158,13 @@ taken. The owner prints a monthly invoice for the city from `/graffiti/invoice`.
 - Setup: re-run `supabase/graffiti.sql` (adds the `graffiti_photos` table). Until it is run the tag
   list still works; only the extra photos are missing and adding one reports an error.
 
-**Google Sheets invoice (one section per crew member)**
+**Google Sheets invoice (one list of every tag removed)**
 
 - Each finished tag is credited to whoever took the job (else whoever finished it,
   else whoever reported/logged it), using the name on their login. The on-screen
-  invoice and the CSV group by that person with a subtotal each.
+  invoice and the CSV still group by that person. The **Google Sheets download does
+  not**: its Invoice Sheet is one list of every tag removed (oldest first, no person
+  headings or subtotals, one total), and the Instance Reporting tab keeps a *Done by* column.
 - The crew record the **type of tag** (Slap tag, Chalk pen, Sharpie, Spray paint, Other), **what it is on** and the
   **chemical used** (boxes: SSR, Bare brick, Razor, Other; paint-over jobs use *Other* and type it in). Choosing *Other* on the tag type, what it's on or the chemical opens a box to type it in. They are in the CSV, and the tag type fills the sheet's *Graffiti type* column
   (so the line reads "Graffiti Removal at Main St, Slap tag on Electrical box").
@@ -174,8 +176,8 @@ taken. The owner prints a monthly invoice for the city from `/graffiti/invoice`.
 - The sheet always bills in half-hour steps with a half-hour minimum (that is what
   the template's formulas do). To make the on-screen invoice match, set
   *Round time up to nearest* to 30 min in Billing settings.
-- Sections are written into the file when you download it. If you edit jobs in the
-  sheet afterwards, it will not regroup; fix the job in the tracker and download again.
+- The list is written into the file when you download it. If you edit jobs in the
+  tracker afterwards, download again.
 - Existing installs: re-run `supabase/graffiti.sql` (adds the new columns and lets
   the bucket accept .xlsx).
 - **Letting crew use the invoice**: Admin tab → tick **graffiti invoice** for that person

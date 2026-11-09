@@ -9,7 +9,7 @@
 //  - "Instance Reporting" gets one row per finished job (the same columns the owner
 //    types by hand today, plus "Done by").
 //  - "Invoice Sheet" keeps the template's own formulas (quantity from the arrive/leave
-//    times, rate, amount), grouped into one section per crew member with a subtotal.
+//    times, rate, amount), as one list of every tag removed, oldest first, with the template's own total.
 //
 // Pure functions over a Buffer: no database, no network. The template itself is NOT in the
 // source code (the repo is public): the owner uploads it once and it is read from storage.
@@ -154,37 +154,6 @@ export function checkTemplate(zip: JSZip, inv: string, log: string) {
   if (!/<row r="4"/.test(log) || !/<row r="83"/.test(log)) throw new Error("This doesn't look like your template's Instance Reporting tab.");
 }
 
-// ---------- styles: add bold variants for the per-person rows ----------
-
-const S_PERSON_NAME = 58; // description cell, bold
-const S_SUB_QTY = 59; // quantity subtotal, bold right
-const S_SUB_TEXT = 60; // "Subtotal" label, bold right
-const S_SUB_AMT = 61; // amount subtotal, bold
-
-function addStyles(xml: string): string {
-  const fonts = xml.match(/<fonts count="(\d+)">/);
-  const xfs = xml.match(/<cellXfs count="(\d+)">/);
-  if (!fonts || !xfs) throw new Error("Unexpected styles in the invoice template.");
-  const fontId = Number(fonts[1]); // new bold 9 pt Times New Roman goes last
-  const base = Number(xfs[1]);
-  if (base !== S_PERSON_NAME) throw new Error("The invoice template has a different style table than expected.");
-  const xf = (border: number, font: number, numFmt: number, align: string) =>
-    `<xf borderId="${border}" fillId="0" fontId="${font}" numFmtId="${numFmt}" xfId="0" applyAlignment="1" applyBorder="1" applyFont="1"${numFmt ? ' applyNumberFormat="1"' : ""}>${align}</xf>`;
-  return xml
-    .replace(`<fonts count="${fontId}">`, `<fonts count="${fontId + 1}">`)
-    .replace("</fonts>", `<font><b/><sz val="9.0"/><name val="Times New Roman"/></font></fonts>`)
-    .replace(`<cellXfs count="${base}">`, `<cellXfs count="${base + 4}">`)
-    .replace(
-      "</cellXfs>",
-      [
-        xf(6, fontId, 0, '<alignment readingOrder="0"/>'),
-        xf(6, fontId, 0, '<alignment horizontal="right" readingOrder="0"/>'),
-        xf(6, fontId, 0, '<alignment horizontal="right" readingOrder="0"/>'),
-        xf(15, fontId, 2, ""),
-      ].join("") + "</cellXfs>",
-    );
-}
-
 // ---------- the build ----------
 
 export async function buildInvoiceXlsx(templateBytes: Uint8Array | Buffer, build: InvoiceBuild, o: InvoiceXlsxOptions): Promise<Uint8Array> {
@@ -195,7 +164,7 @@ export async function buildInvoiceXlsx(templateBytes: Uint8Array | Buffer, build
   checkTemplate(zip, invXml, logXml);
 
   const rate = o.rateCents / 100;
-  // The log keeps jobs in the order they were finished; invoice sections point at their rows.
+  // The log keeps jobs in the order they were finished; the invoice sheet lists them in that same order, pointing at their log rows.
   const jobs = toJobs(build.lines, o.tz);
   const jobByLine = new Map(jobs.map((j) => [j.line.id, j]));
   if (jobs.length === 0) throw new Error("There are no finished jobs in that month.");
@@ -253,9 +222,7 @@ export async function buildInvoiceXlsx(templateBytes: Uint8Array | Buffer, build
 
   // ---------- Invoice Sheet ----------
   const inv = splitSheet(invXml);
-  const people = build.people;
-  const need = people.reduce((a, p) => a + p.lines.length + 2, 0) + (people.length - 1);
-  const tableRows = Math.max(MIN_TABLE_ROWS, need + 1); // +1 for the closing row
+  const tableRows = Math.max(MIN_TABLE_ROWS, jobs.length + 1); // +1 for the closing row
   const closeRow = FIRST_LINE + tableRows - 1;
   const footerFirst = closeRow + 1;
   const offset = footerFirst - FOOTER_FIRST;
@@ -285,64 +252,32 @@ export async function buildInvoiceXlsx(templateBytes: Uint8Array | Buffer, build
     row(r, [blank(ref(1, r), 35), blank(ref(2, r), 36), blank(ref(6, r), 20), blank(ref(7, r), 37), blank(ref(8, r), 40)]);
   const merges: string[] = [];
   let r = FIRST_LINE;
-  const subtotalCells: string[] = [];
   let grand = 0;
-  people.forEach((p, pi) => {
-    if (pi > 0) {
-      out.push(emptyLine(r));
-      merges.push(`C${r}:G${r}`);
-      r++;
-    }
-    // section header
-    out.push(row(r, [blank(ref(1, r), 36), text(ref(2, r), S_PERSON_NAME, p.name), blank(ref(6, r), 20), blank(ref(7, r), 37), blank(ref(8, r), 40)]));
-    merges.push(`C${r}:G${r}`);
-    r++;
-    const first = r;
-    let qtySum = 0;
-    let amtSum = 0;
-    for (const l of p.lines) {
-      const j = jobByLine.get(l.id) as Job;
-      const lr = j.logRow;
-      const qty = templateQty(j.arrived, j.left);
-      const kind = typeText(j.line.type, j.line.gtype_other);
-      const surf = j.line.surface?.trim() ?? "";
-      const desc = `Graffiti Removal at ${j.place}${kind ? `, ${kind}` : ""}${surf ? ` on ${surf}` : ""}`;
-      qtySum += qty;
-      amtSum += qty * rate;
-      out.push(
-        row(r, [
-          fnum(ref(1, r), 35, `if(${LOG}!G${lr}="","",MROUND((24*MOD(${LOG}!H${lr}-${LOG}!G${lr},1))+0.2499,0.5))`, qty),
-          fstr(
-            ref(2, r),
-            36,
-            // the template's description, but a missing kind or surface leaves no dangling ", " / " on "
-            `if(${LOG}!D${lr}="","",CONCATENATE("Graffiti Removal at"," ",${LOG}!D${lr},if(${LOG}!F${lr}="","",", "&${LOG}!F${lr}),if(${LOG}!E${lr}="",""," on "&${LOG}!E${lr})))`,
-            desc,
-          ),
-          blank(ref(6, r), 20),
-          fnum(ref(7, r), 37, `if(B${r}="","",${rate})`, rate),
-          fnum(ref(8, r), 40, `if(B${r}="","",H${r}*B${r})`, qty * rate),
-        ]),
-      );
-      merges.push(`C${r}:G${r}`);
-      r++;
-    }
-    const last = r - 1;
-    // subtotal for this person
+  for (const j of jobs) {
+    const lr = j.logRow;
+    const qty = templateQty(j.arrived, j.left);
+    const kind = typeText(j.line.type, j.line.gtype_other);
+    const surf = j.line.surface?.trim() ?? "";
+    const desc = `Graffiti Removal at ${j.place}${kind ? `, ${kind}` : ""}${surf ? ` on ${surf}` : ""}`;
+    grand += qty * rate;
     out.push(
       row(r, [
-        fnum(ref(1, r), S_SUB_QTY, `SUM(B${first}:B${last})`, qtySum),
-        text(ref(2, r), S_SUB_TEXT, `Subtotal: ${p.name}`),
+        fnum(ref(1, r), 35, `if(${LOG}!G${lr}="","",MROUND((24*MOD(${LOG}!H${lr}-${LOG}!G${lr},1))+0.2499,0.5))`, qty),
+        fstr(
+          ref(2, r),
+          36,
+          // the template's description, but a missing kind or surface leaves no dangling ", " / " on "
+          `if(${LOG}!D${lr}="","",CONCATENATE("Graffiti Removal at"," ",${LOG}!D${lr},if(${LOG}!F${lr}="","",", "&${LOG}!F${lr}),if(${LOG}!E${lr}="",""," on "&${LOG}!E${lr})))`,
+          desc,
+        ),
         blank(ref(6, r), 20),
-        blank(ref(7, r), 37),
-        fnum(ref(8, r), S_SUB_AMT, `SUM(I${first}:I${last})`, amtSum),
+        fnum(ref(7, r), 37, `if(B${r}="","",${rate})`, rate),
+        fnum(ref(8, r), 40, `if(B${r}="","",H${r}*B${r})`, qty * rate),
       ]),
     );
     merges.push(`C${r}:G${r}`);
-    subtotalCells.push(`I${r}`);
-    grand += amtSum;
     r++;
-  });
+  }
   for (; r < closeRow; r++) {
     out.push(emptyLine(r));
     merges.push(`C${r}:G${r}`);
@@ -356,8 +291,8 @@ export async function buildInvoiceXlsx(templateBytes: Uint8Array | Buffer, build
     if (!src) continue;
     let x = shiftRow(src, t, t + offset);
     if (t === FOOTER_FIRST) {
-      // the grand total adds up the per-person subtotals only (never the lines + subtotals twice)
-      x = x.replace(/<c r="I\d+" s="52"><f>[\s\S]*?<\/f><v>[^<]*<\/v><\/c>/, fnum(`I${t + offset}`, 52, `SUM(${subtotalCells.join(",")})`, grand));
+      // the total adds up every line of the one list
+      x = x.replace(/<c r="I\d+" s="52"><f>[\s\S]*?<\/f><v>[^<]*<\/v><\/c>/, fnum(`I${t + offset}`, 52, `SUM(I${FIRST_LINE}:I${closeRow - 1})`, grand));
     }
     out.push(x);
   }
@@ -380,7 +315,6 @@ export async function buildInvoiceXlsx(templateBytes: Uint8Array | Buffer, build
   // ---------- write the package ----------
   zip.file(SHEET_INVOICE, newInv);
   zip.file(SHEET_LOG, newLog);
-  zip.file(STYLES, addStyles((await zip.file(STYLES)?.async("string")) as string));
   const wb = (await zip.file(WORKBOOK)?.async("string")) as string;
   zip.file(WORKBOOK, wb.replace(/<calcPr\/>|<calcPr[^>]*\/>/, '<calcPr fullCalcOnLoad="1"/>'));
   return zip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
