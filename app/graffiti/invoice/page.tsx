@@ -523,7 +523,7 @@ export default function InvoicePage() {
             Google Sheets invoice {tpl?.exists ? "(template saved)" : tpl ? "(upload your template first)" : ""}
           </summary>
           <p className={styles.sub} style={{ marginTop: 8 }}>
-            The download builds your own invoice layout (letterhead, logo, Bill To, columns) with one section per crew member and a subtotal for each, and an
+            The download builds your own invoice layout (letterhead, logo, Bill To, columns) with one list of every tag removed and one total, and an
             Instance Reporting tab listing every job. It always bills in half-hour steps with a half-hour minimum, like your sheet does. Open the file in Google
             Sheets (Drive → New → File upload → open with Google Sheets).
           </p>
