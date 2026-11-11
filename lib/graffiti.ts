@@ -12,7 +12,7 @@ export const GRAFFITI_STATUSES = ["reported", "scheduled", "in_progress", "remov
 export type GraffitiStatus = (typeof GRAFFITI_STATUSES)[number];
 
 // What crew can pick for a new tag.
-export const GRAFFITI_TYPES = ["slap", "chalk", "sharpie", "spray", "other"] as const;
+export const GRAFFITI_TYPES = ["slap", "chalk", "sharpie", "spray", "flyer", "other"] as const;
 // Retired choices: no longer offered, but jobs already saved with them keep working.
 export const LEGACY_TYPES = ["ssr", "powerwash"] as const;
 export type GraffitiType = (typeof GRAFFITI_TYPES)[number] | (typeof LEGACY_TYPES)[number];
@@ -21,9 +21,10 @@ export const ALL_TYPES: readonly GraffitiType[] = [...GRAFFITI_TYPES, ...LEGACY_
 
 export const TYPE_NAMES: Record<GraffitiType, string> = {
   slap: "Slap tag",
-  chalk: "Chalk pen",
+  chalk: "Chalk pen/sharpie",
   sharpie: "Sharpie",
   spray: "Spray paint",
+  flyer: "Outdated/tattered flyer(s)",
   other: "Other",
   ssr: "SSR",
   powerwash: "Powerwash",
