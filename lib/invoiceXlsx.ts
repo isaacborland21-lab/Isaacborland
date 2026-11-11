@@ -164,6 +164,7 @@ export async function buildInvoiceXlsx(templateBytes: Uint8Array | Buffer, build
   checkTemplate(zip, invXml, logXml);
 
   const rate = o.rateCents / 100;
+  const chemCount = build.lines.filter((l) => l.chem !== null).length;
   // The log keeps jobs in the order they were finished; the invoice sheet lists them in that same order, pointing at their log rows.
   const jobs = toJobs(build.lines, o.tz);
   const jobByLine = new Map(jobs.map((j) => [j.line.id, j]));
@@ -222,7 +223,8 @@ export async function buildInvoiceXlsx(templateBytes: Uint8Array | Buffer, build
 
   // ---------- Invoice Sheet ----------
   const inv = splitSheet(invXml);
-  const tableRows = Math.max(MIN_TABLE_ROWS, jobs.length + 1); // +1 for the closing row
+  // one row per tag, plus a row of its own under each tag that has a chemical bill-back, plus the closing row
+  const tableRows = Math.max(MIN_TABLE_ROWS, jobs.length + chemCount + 1);
   const closeRow = FIRST_LINE + tableRows - 1;
   const footerFirst = closeRow + 1;
   const offset = footerFirst - FOOTER_FIRST;
@@ -277,6 +279,23 @@ export async function buildInvoiceXlsx(templateBytes: Uint8Array | Buffer, build
     );
     merges.push(`C${r}:G${r}`);
     r++;
+    // the chemical bill-back is its own line item right under the tag: gallons x the price per gallon
+    const chem = j.line.chem;
+    if (chem) {
+      const price = chem.unitCents / 100;
+      grand += chem.gallons * price;
+      out.push(
+        row(r, [
+          num(ref(1, r), 35, chem.gallons),
+          text(ref(2, r), 36, `Chemical bill back: ${chem.label}, ${chem.gallons} gal at ${j.place}`),
+          blank(ref(6, r), 20),
+          num(ref(7, r), 37, price),
+          fnum(ref(8, r), 40, `if(B${r}="","",H${r}*B${r})`, Math.round(chem.gallons * chem.unitCents) / 100),
+        ]),
+      );
+      merges.push(`C${r}:G${r}`);
+      r++;
+    }
   }
   for (; r < closeRow; r++) {
     out.push(emptyLine(r));
@@ -291,7 +310,7 @@ export async function buildInvoiceXlsx(templateBytes: Uint8Array | Buffer, build
     if (!src) continue;
     let x = shiftRow(src, t, t + offset);
     if (t === FOOTER_FIRST) {
-      // the total adds up every line of the one list
+      // the total adds up every line of the one list (work and chemical bill-back lines)
       x = x.replace(/<c r="I\d+" s="52"><f>[\s\S]*?<\/f><v>[^<]*<\/v><\/c>/, fnum(`I${t + offset}`, 52, `SUM(I${FIRST_LINE}:I${closeRow - 1})`, grand));
     }
     out.push(x);

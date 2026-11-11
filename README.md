@@ -182,6 +182,14 @@ taken. The owner prints a monthly invoice for the city from `/graffiti/invoice`.
   tracker afterwards, download again.
 - Existing installs: re-run `supabase/graffiti.sql` (adds the new columns and lets
   the bucket accept .xlsx).
+- **Chemical bill-back**: when a job used a high amount of chemicals, the crew turns on **Chemical Bill
+  Back** (off by default; under *Chemical used* when removing a tag, or on the tag itself afterwards). It
+  asks **SSR or Bare Brick**, then the **gallons** (default 1). The **price per gallon** for each is set by
+  the owner in Billing settings (crew never see prices). The invoice bills it as its **own line item** under
+  the tag (on the page, in the CSV and in the Google Sheets file), separate from the hourly work, and the
+  total due is both. It does not change the minutes billed. A tag with a bill-back whose price is still $0
+  can't be marked invoiced (the page says which). A sent invoice keeps the prices it was sent with, like the
+  rate. Existing installs: re-run `supabase/graffiti.sql` (adds the columns).
 - **Letting crew use the invoice**: Admin tab → tick **graffiti invoice** for that person
   (they also need the graffiti tab). They then get an *Invoice* link in the tracker and can
   view the invoice, print/download it (PDF, CSV, Google Sheets) and mark a month invoiced.

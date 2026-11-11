@@ -5,6 +5,10 @@ import type { ChangeEvent, FormEvent, MouseEvent } from "react";
 import styles from "./graffiti.module.css";
 import {
   CHEMICAL_OPTIONS,
+  CHEM_BILLBACKS,
+  CHEM_BILLBACK_NAMES,
+  ChemBillback,
+  MAX_CHEM_GALLONS,
   SURFACE_OPTIONS,
   GRAFFITI_STATUSES,
   ALL_TYPES,
@@ -682,6 +686,98 @@ function PickField({
 }
 
 /** Pick one of a few boxes; choosing "Other" opens a text box to type what it is (the typed text is the value). */
+const BILLBACK_LACKING = "which chemical for the bill back (SSR or Bare Brick)";
+
+/**
+ * Chemical bill back: off by default, only for jobs that used a high amount of chemicals. Turning it on asks
+ * SSR or Bare Brick; once one is picked the gallons default to 1. The price per gallon is set in the invoice
+ * settings (crew never see prices) and the invoice bills it on its own line.
+ */
+function ChemBillbackField({
+  id,
+  on,
+  setOn,
+  kind,
+  setKind,
+  gallons,
+  setGallons,
+  invalid,
+}: {
+  id: string;
+  on: boolean;
+  setOn: (v: boolean) => void;
+  kind: ChemBillback | "";
+  setKind: (k: ChemBillback | "") => void;
+  gallons: string;
+  setGallons: (v: string) => void;
+  invalid?: boolean;
+}) {
+  return (
+    <div className={styles.pick} data-testid={`${id}-wrap`} style={{ marginTop: 14 }}>
+      <div className={styles.opts} style={{ gridTemplateColumns: "1fr" }}>
+        <label className={`${styles.opt} ${styles.sm}`}>
+          <input
+            type="checkbox"
+            data-testid={`${id}-on`}
+            checked={on}
+            onChange={(e) => {
+              setOn(e.target.checked);
+              if (!e.target.checked) {
+                setKind("");
+                setGallons("1");
+              }
+            }}
+          />
+          <span>Chemical Bill Back (ONLY WHEN USED HIGH AMOUNT OF CHEMICALS)</span>
+        </label>
+      </div>
+      {on && (
+        <>
+          <span className={styles.lbl} id={`${id}-kind-lbl`} style={{ marginTop: 10, display: "block" }}>
+            Which chemical
+          </span>
+          <div className={`${styles.opts} ${invalid ? styles.invalid : ""}`} role="radiogroup" aria-labelledby={`${id}-kind-lbl`} aria-invalid={invalid || undefined} id={`${id}-kind`}>
+            {CHEM_BILLBACKS.map((k) => (
+              <label key={k} className={styles.opt}>
+                <input
+                  type="radio"
+                  name={`${id}-kind`}
+                  value={k}
+                  data-testid={`${id}-${k}`}
+                  checked={kind === k}
+                  onChange={() => {
+                    setKind(k);
+                    if (gallons.trim() === "") setGallons("1");
+                  }}
+                />
+                <span>{CHEM_BILLBACK_NAMES[k]}</span>
+              </label>
+            ))}
+          </div>
+          {kind !== "" && (
+            <>
+              <label className={styles.lbl} htmlFor={`${id}-gal`} style={{ marginTop: 10, display: "block" }}>
+                Gallons used
+              </label>
+              <input
+                id={`${id}-gal`}
+                type="number"
+                inputMode="decimal"
+                min="0.25"
+                max={MAX_CHEM_GALLONS}
+                step="0.25"
+                data-testid={`${id}-gal`}
+                value={gallons}
+                onChange={(e) => setGallons(e.target.value)}
+              />
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function ChoiceBoxes({
   id,
   label,
@@ -830,6 +926,10 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
   const [doneAfter, setDoneAfter] = useState<File | null>(null);
   const [surface, setSurface] = useState("");
   const [chemical, setChemical] = useState("");
+  // chemical bill back: off unless a job used a high amount of chemicals
+  const [cbOn, setCbOn] = useState(false);
+  const [cbKind, setCbKind] = useState<ChemBillback | "">("");
+  const [cbGal, setCbGal] = useState("1");
   const [showErr, setShowErr] = useState(false); // outline the blank required details after a blocked photo
   const [formKey, setFormKey] = useState(0); // remounts the pick-lists after a save so "Other" boxes close
   const [minutes, setMinutes] = useState("");
@@ -851,19 +951,22 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
   const [mapErr, setMapErr] = useState<string | null>(null);
 
   // values read after awaits must be current, not stale from the render that started the work
-  const latest = useRef({ address: "", description: "", gtype: "slap" as GraffitiType, gtypeOther: "", surface: "", chemical: "" });
+  const latest = useRef({ address: "", description: "", gtype: "slap" as GraffitiType, gtypeOther: "", surface: "", chemical: "", cbKind: "" as ChemBillback | "", cbGal: "1" });
   latest.current.description = description;
   latest.current.gtype = gtype;
   latest.current.gtypeOther = gtypeOther;
   latest.current.surface = surface;
   latest.current.chemical = chemical;
+  latest.current.cbKind = cbOn ? cbKind : "";
+  latest.current.cbGal = cbGal;
   const setAddress = useCallback((v: string) => {
     latest.current.address = v;
     setAddressState(v);
   }, []);
 
   // what it's on is needed before any photo; the chemical too once you are removing it (the tag type always has a value)
-  const lacking = missingDetails({ surface, chemical }, intent === "remove");
+  const billbackOpen = intent === "remove" && cbOn;
+  const lacking = [...missingDetails({ surface, chemical }, intent === "remove"), ...(billbackOpen && !cbKind ? [BILLBACK_LACKING] : [])];
   const locked = lacking.length > 0;
   function blockIfLocked(): boolean {
     if (!locked) return false;
@@ -891,6 +994,9 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
     if (active) return;
     setSurface("");
     setChemical("");
+    setCbOn(false);
+    setCbKind("");
+    setCbGal("1");
     setGtype("slap");
     setGtypeOther("");
     setShowErr(false);
@@ -1151,6 +1257,8 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
       fd.set("description", latest.current.description);
       fd.set("surface", latest.current.surface);
       fd.set("chemical", latest.current.chemical);
+      fd.set("chem_billback", latest.current.cbKind);
+      fd.set("chem_gallons", latest.current.cbGal);
       fd.set("photo_at", String(p.at));
       fd.set("photo", await shrinkPhoto(p.file), "before.jpg");
       const { incident } = await apiJson<{ incident: Incident }>("/api/graffiti/incidents", { method: "POST", body: fd });
@@ -1198,7 +1306,11 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
       fd.set("gtype_other", gtypeOther);
       fd.set("description", description);
       fd.set("surface", surface);
-      if (!reporting) fd.set("chemical", chemical);
+      if (!reporting) {
+        fd.set("chemical", chemical);
+        fd.set("chem_billback", cbOn ? cbKind : "");
+        fd.set("chem_gallons", cbGal);
+      }
       if (reporting) {
         if (reportFiles[0]) fd.set("photo", await shrinkPhoto(reportFiles[0]), "report.jpg");
       } else {
@@ -1370,6 +1482,9 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
           />
         )}
       </div>
+      {intent === "remove" && (
+        <ChemBillbackField id="gt-billback" on={cbOn} setOn={setCbOn} kind={cbKind} setKind={setCbKind} gallons={cbGal} setGallons={setCbGal} invalid={showErr && cbOn && !cbKind} />
+      )}
 
       <label className={styles.lbl} htmlFor="gt-desc">
         Notes (optional)
@@ -1716,10 +1831,13 @@ function IncidentSheet({
   const [gtypeOther, setGtypeOther] = useState(inc.gtype_other ?? "");
   const [surface, setSurface] = useState(inc.surface ?? "");
   const [chemical, setChemical] = useState(inc.chemical ?? "");
+  const [cbOn, setCbOn] = useState(!!inc.chem_billback);
+  const [cbKind, setCbKind] = useState<ChemBillback | "">(inc.chem_billback ?? "");
+  const [cbGal, setCbGal] = useState(inc.chem_gallons != null ? String(inc.chem_gallons) : "1");
   const [busy, setBusy] = useState(false);
   const [showErr, setShowErr] = useState(false);
   // starting or finishing needs all three details (what the crew typed here counts)
-  const lacking = missingDetails({ surface, chemical }, true);
+  const lacking = [...missingDetails({ surface, chemical }, true), ...(cbOn && !cbKind ? [BILLBACK_LACKING] : [])];
   const locked = lacking.length > 0;
   function blocked(): boolean {
     if (!locked) return false;
@@ -1741,6 +1859,10 @@ function IncidentSheet({
 
   async function save(extra: Record<string, string> = {}, photo?: File, message = "Updated") {
     if (busy) return;
+    if (cbOn && !cbKind) {
+      setShowErr(true);
+      return toast("Pick SSR or Bare Brick for the chemical bill back, or turn it off.");
+    }
     setBusy(true);
     try {
       const fd = new FormData();
@@ -1749,6 +1871,8 @@ function IncidentSheet({
       fd.set("gtype_other", gtypeOther);
       fd.set("surface", surface);
       fd.set("chemical", chemical);
+      fd.set("chem_billback", cbOn ? cbKind : "");
+      fd.set("chem_gallons", cbGal);
       fd.set("notes", notes);
       fd.set("duration_min", mins);
       for (const [k, v] of Object.entries(extra)) fd.set(k, v);
@@ -1998,6 +2122,7 @@ function IncidentSheet({
 
         <PickField id="gs-surface" label="What it's on" options={SURFACE_OPTIONS} value={surface} onChange={setSurface} required={inc.status !== "removed"} invalid={showErr && !surface.trim()} />
         <ChoiceBoxes id="gs-chem" label="Chemical used" options={CHEMICAL_OPTIONS} value={chemical} onChange={setChemical} required={inc.status !== "removed"} invalid={showErr && !chemical.trim()} />
+        <ChemBillbackField id="gs-billback" on={cbOn} setOn={setCbOn} kind={cbKind} setKind={setCbKind} gallons={cbGal} setGallons={setCbGal} invalid={showErr && cbOn && !cbKind} />
 
         <label className={styles.lbl} htmlFor="gs-notes">
           Notes

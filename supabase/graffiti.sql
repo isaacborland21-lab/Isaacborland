@@ -134,3 +134,14 @@ create table if not exists public.graffiti_photos (
 );
 create index if not exists graffiti_photos_incident_idx on public.graffiti_photos (incident_id, id);
 alter table public.graffiti_photos enable row level security;
+
+-- Chemical bill-back (only for jobs that used a high amount of chemicals): billed as its own invoice line.
+-- A sent invoice keeps the per-gallon prices it was sent with.
+alter table public.graffiti_incidents add column if not exists chem_billback text;
+alter table public.graffiti_incidents add column if not exists chem_gallons numeric(5,2);
+alter table public.graffiti_incidents drop constraint if exists graffiti_incidents_chem_billback_check;
+alter table public.graffiti_incidents add constraint graffiti_incidents_chem_billback_check check (chem_billback is null or chem_billback in ('ssr', 'bare_brick'));
+alter table public.graffiti_incidents drop constraint if exists graffiti_incidents_chem_gallons_check;
+alter table public.graffiti_incidents add constraint graffiti_incidents_chem_gallons_check check (chem_gallons is null or (chem_gallons > 0 and chem_gallons <= 50));
+alter table public.graffiti_invoices add column if not exists chem_ssr_cents   integer not null default 0;
+alter table public.graffiti_invoices add column if not exists chem_brick_cents integer not null default 0;
