@@ -35,6 +35,7 @@ import {
 } from "./clientUtil";
 import PatrolBar from "./PatrolBar";
 import { PATROL_ENABLED, crewColor } from "@/lib/patrol";
+import { readPhotoMeta } from "@/lib/exif";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -361,8 +362,6 @@ export default function GraffitiTab({ isOwner, canInvoice = isOwner }: { isOwner
         <IncidentSheet
           key={opened.id}
           inc={opened}
-          canDelete={isOwner || opened.mine === true}
-          isOwner={isOwner}
           toast={toast}
           onClose={() => setOpenId(null)}
           onSaved={upsert}
@@ -751,6 +750,15 @@ function ChoiceBoxes({
 }
 
 /** A photo already on the phone (camera roll) or taken now, for a job that is already finished. Preview and remove included. */
+const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+/** Today / N days ago on this device's calendar, "YYYY-MM-DD" (what a date box wants). */
+const todayLocal = () => ymd(new Date());
+const daysAgoLocal = (n: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return ymd(d);
+};
+
 function ChosenPhoto({
   label,
   testId,
@@ -825,6 +833,13 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
   const [showErr, setShowErr] = useState(false); // outline the blank required details after a blocked photo
   const [formKey, setFormKey] = useState(0); // remounts the pick-lists after a save so "Other" boxes close
   const [minutes, setMinutes] = useState("");
+  // the day a report / finished log is for: today unless it is set back (by hand, or from the day a photo was taken)
+  const [day, setDay] = useState(todayLocal);
+  const dayTouched = useRef(false); // typed by hand: a photo's date never overrides it
+  const dayFromPhoto = useRef(false);
+  const pinMoved = useRef(false); // the pin was put somewhere by hand: a photo's location never overrides it
+  const photoLoc = useRef(false); // the pin came from a photo's location: the phone's GPS fix must not move it back
+  const missShown = useRef(false); // the "no location in that photo" note is shown once per tag, not for every photo
   const [hint, setHint] = useState("Getting your GPS location...");
   const [picked, setPicked] = useState<{ lat: number; lng: number } | null>(null);
   const [pending, setPending] = useState<{ file: File; at: number } | null>(null);
@@ -889,9 +904,48 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
     return () => urls.forEach((u) => URL.revokeObjectURL(u));
   }, [reportFiles]);
 
-  function addReportFiles(files: File[]) {
+  /**
+   * Where and when the chosen photo(s) were taken (EXIF, read before the photo is shrunk): moves the pin there
+   * and, when `date` is set, dates the report to that day. A pin placed by hand and a date typed by hand always win.
+   * `notifyMiss`: say so when a photo from the phone's library carries no location (phones often remove it).
+   */
+  async function readInfo(files: File[], o: { date: boolean; notifyMiss: boolean }) {
+    let located = false;
+    let dated = false;
+    let sawAny = false;
+    for (const f of files) {
+      const meta = await readPhotoMeta(f);
+      if (!meta) continue;
+      sawAny = true;
+      if (meta.lat !== undefined && meta.lng !== undefined && !pinMoved.current && !photoLoc.current) {
+        photoLoc.current = true;
+        located = true;
+        void setPick(meta.lat, meta.lng, true);
+      }
+      if (o.date && meta.day && !dayTouched.current && !dayFromPhoto.current && meta.day <= todayLocal() && meta.day >= daysAgoLocal(365)) {
+        dayFromPhoto.current = true;
+        dated = true;
+        setDay(meta.day);
+      }
+    }
+    if (located && dated) toast("Pin set to where the photo was taken, and the date to the day it was taken. Change either if it is off.");
+    else if (located) toast("Pin set to where the photo was taken. Move the map if it is off.");
+    else if (dated) toast("Date set to the day the photo was taken. Change it if it is off.");
+    else if (o.notifyMiss && !photoLoc.current && !pinMoved.current && !missShown.current) {
+      missShown.current = true;
+      toast(sawAny ? "No location saved in that photo, so the pin stays where it is." : "That photo has no location saved in it, so the pin stays where it is.");
+    }
+  }
+
+  function pickDone(f: File | null, set: (f: File | null) => void) {
+    set(f);
+    if (f) void readInfo([f], { date: true, notifyMiss: true });
+  }
+
+  function addReportFiles(files: File[], fromLibrary = false) {
     if (files.length === 0) return;
     if (blockIfLocked()) return;
+    void readInfo(files.slice(0, Math.max(0, MAX_REPORT_PHOTOS - reportFiles.length)), { date: true, notifyMiss: fromLibrary });
     const room = MAX_REPORT_PHOTOS - reportFiles.length;
     if (files.length > room) toast(`Up to ${MAX_REPORT_PHOTOS} photos when reporting. Add the rest from the tag afterwards.`);
     setReportFiles((prev) => [...prev, ...files.slice(0, Math.max(0, room))]);
@@ -955,6 +1009,8 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
     navigator.geolocation.getCurrentPosition(
       (p) => {
         setGpsBusy(false);
+        // a photo's own location (or a hand-placed pin) is better than where the phone happens to be
+        if (photoLoc.current || pinMoved.current) return;
         void setPick(p.coords.latitude, p.coords.longitude, true);
       },
       () => {
@@ -995,6 +1051,7 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
             const pk = pickedRef.current;
             // ignore moves we caused ourselves (map already centered on the pick)
             if (pk && offCenterPx(map, pk.lat, pk.lng) < 1.5) return;
+            pinMoved.current = true;
             void setPick(c.lat, c.lng, false);
           });
           // tapping the map slides that spot under the pin
@@ -1034,6 +1091,12 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
     setAddress("");
     setDescription("");
     setMinutes("");
+    setDay(todayLocal());
+    dayTouched.current = false;
+    dayFromPhoto.current = false;
+    pinMoved.current = false;
+    photoLoc.current = false;
+    missShown.current = false;
     setReportFiles([]);
     setDoneBefore(null);
     setDoneAfter(null);
@@ -1050,13 +1113,16 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
   }
 
   // before photo: saves the job and starts the clock at the moment the photo was taken
-  function onBeforePhoto(e: ChangeEvent<HTMLInputElement>) {
+  async function onBeforePhoto(e: ChangeEvent<HTMLInputElement>, fromLibrary = false) {
     const f = e.target.files?.[0];
     e.target.value = "";
     if (!f) return;
     if (blockIfLocked()) return;
+    const at = Date.now();
+    // if the photo knows where it was taken, the job saves there (the timer still starts when the photo is handed over)
+    await readInfo([f], { date: false, notifyMiss: fromLibrary });
     // keep the earliest photo time if a previous save attempt failed
-    setPending((p) => ({ file: f, at: p ? p.at : Date.now() }));
+    setPending((p) => ({ file: f, at: p ? p.at : at }));
     if (!pickedRef.current) {
       setHint("Photo taken. Waiting for GPS, then the job saves with the clock started at the photo time.");
       if (!gpsBusy) getGps();
@@ -1112,6 +1178,7 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
       const reporting = intent === "report";
       const fd = new FormData();
       fd.set("mode", reporting ? "report" : "done");
+      fd.set("on_date", day);
       fd.set("lat", String(pk.lat));
       fd.set("lng", String(pk.lng));
       fd.set("address", latest.current.address);
@@ -1157,6 +1224,31 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
     }
   }
 
+  const dayBox = (label: string, testId: string) => (
+    <>
+      <label className={styles.lbl} htmlFor={testId}>
+        {label}
+      </label>
+      <input
+        id={testId}
+        type="date"
+        data-testid={testId}
+        value={day}
+        min={daysAgoLocal(365)}
+        max={todayLocal()}
+        onChange={(e) => {
+          dayTouched.current = true;
+          setDay(e.target.value || todayLocal());
+        }}
+      />
+      {day !== todayLocal() && (
+        <div className={styles.hint} data-testid={`${testId}-note`}>
+          Dated {day}, not today.
+        </div>
+      )}
+    </>
+  );
+
   return (
     <form onSubmit={onSubmit}>
       <div className={styles.intent} role="radiogroup" aria-label="What are you doing?">
@@ -1197,6 +1289,9 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
           disabled={gpsBusy}
           title="Re-check GPS"
           onClick={() => {
+            // asking for the phone's own location again beats an earlier photo or hand-placed pin
+            pinMoved.current = false;
+            photoLoc.current = false;
             dirty.current = false;
             getGps();
           }}
@@ -1277,7 +1372,10 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
 
       {intent === "report" ? (
         <Fragment key="report">
-          <span className={styles.lbl}>Photos of the tag (recommended)</span>
+          {dayBox("Date it was found", "report-date")}
+          <span className={styles.lbl} style={{ marginTop: 14 }}>
+            Photos of the tag (recommended)
+          </span>
           <label className={`${styles.photobtn} ${styles.reportPhoto} ${locked ? styles.locked : ""}`}>
             <input
               type="file"
@@ -1308,7 +1406,7 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
               onChange={(e) => {
                 const files = filesOf(e.target);
                 e.target.value = "";
-                addReportFiles(files);
+                addReportFiles(files, true);
               }}
             />
             Choose photos from your phone
@@ -1342,7 +1440,7 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
               onClick={(e) => {
                 if (blockIfLocked()) e.preventDefault();
               }}
-              onChange={onBeforePhoto}
+              onChange={(e) => void onBeforePhoto(e, false)}
             />
             Take before photo
             <small>{locked ? "Fill in the details above first" : "Saves the job and starts the timer"}</small>
@@ -1355,7 +1453,7 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
               onClick={(e) => {
                 if (blockIfLocked()) e.preventDefault();
               }}
-              onChange={onBeforePhoto}
+              onChange={(e) => void onBeforePhoto(e, true)}
             />
             Or choose a photo from your phone
           </label>
@@ -1367,7 +1465,8 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
 
           <details className={styles.details} open={otherOpen} onToggle={(e) => setOtherOpen((e.currentTarget as HTMLDetailsElement).open)}>
             <summary>Already finished? Log it without the timer</summary>
-            <label className={styles.lbl} htmlFor="gt-min">
+            {dayBox("Date it was done", "done-date")}
+            <label className={styles.lbl} htmlFor="gt-min" style={{ marginTop: 14 }}>
               Minutes it took
             </label>
             <input
@@ -1380,8 +1479,8 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
               value={minutes}
               onChange={(e) => setMinutes(e.target.value)}
             />
-            <ChosenPhoto label="Before photo (optional)" testId="done-before" file={doneBefore} onFile={setDoneBefore} blockIfLocked={blockIfLocked} />
-            <ChosenPhoto label="After photo (optional)" testId="done-after" file={doneAfter} onFile={setDoneAfter} blockIfLocked={blockIfLocked} />
+            <ChosenPhoto label="Before photo (optional)" testId="done-before" file={doneBefore} onFile={(f) => pickDone(f, setDoneBefore)} blockIfLocked={blockIfLocked} />
+            <ChosenPhoto label="After photo (optional)" testId="done-after" file={doneAfter} onFile={(f) => pickDone(f, setDoneAfter)} blockIfLocked={blockIfLocked} />
             <div className={styles.hint}>The time on site is the minutes you type. Photos here are only attached to the tag; they don't set the time.</div>
             <button type="submit" className={`${styles.btn} ${styles.sec} ${styles.block}`} style={{ marginTop: 12 }} disabled={saving}>
               {saving ? "Saving..." : "Save completed job"}
@@ -1464,12 +1563,10 @@ export function PhotoButton({
 /** The photos beyond as reported / before / after: see them all, add several at once, add more any time, remove your own. */
 function MorePhotos({
   inc,
-  isOwner,
   toast,
   onPhotos,
 }: {
   inc: Incident;
-  isOwner: boolean;
   toast: Toast;
   onPhotos: (id: number, photos: IncidentPhoto[]) => void;
 }) {
@@ -1553,11 +1650,9 @@ function MorePhotos({
                     <img src={u} alt={`Extra photo by ${p.by ?? "crew"}`} loading="lazy" />
                   </a>
                 )}
-                {(p.mine || isOwner) && (
-                  <button type="button" className={styles.photoX} aria-label="Remove this photo" data-testid="remove-photo" disabled={removing === p.id} onClick={() => void remove(p)}>
-                    ×
-                  </button>
-                )}
+                <button type="button" className={styles.photoX} aria-label="Remove this photo" data-testid="remove-photo" disabled={removing === p.id} onClick={() => void remove(p)}>
+                  ×
+                </button>
                 <figcaption>{`${p.by ?? "Crew"} · ${fmtDate(p.at)} ${fmtTime(p.at)}`}</figcaption>
               </figure>
             );
@@ -1589,8 +1684,6 @@ function MorePhotos({
 
 function IncidentSheet({
   inc,
-  canDelete,
-  isOwner,
   toast,
   onClose,
   onSaved,
@@ -1598,8 +1691,6 @@ function IncidentSheet({
   onDeleted,
 }: {
   inc: Incident;
-  canDelete: boolean;
-  isOwner: boolean;
   toast: Toast;
   onClose: () => void;
   onSaved: (inc: Incident) => void;
@@ -1719,7 +1810,7 @@ function IncidentSheet({
           <PhotoFig label="After" name={inc.after_photo} />
         </div>
 
-        <MorePhotos inc={inc} isOwner={isOwner} toast={toast} onPhotos={onPhotos} />
+        <MorePhotos inc={inc} toast={toast} onPhotos={onPhotos} />
 
         {(inc.status === "reported" || inc.status === "scheduled") && (
           <div className={styles.claimBox} data-testid="claim-box">
@@ -1919,11 +2010,9 @@ function IncidentSheet({
             Navigate here
           </a>
         </p>
-        {canDelete && (
-          <button type="button" className={`${styles.btn} ${styles.danger} ${styles.block}`} disabled={busy} onClick={remove}>
-            Delete incident
-          </button>
-        )}
+        <button type="button" className={`${styles.btn} ${styles.danger} ${styles.block}`} disabled={busy} onClick={remove}>
+          Delete incident
+        </button>
       </div>
     </div>
   );
