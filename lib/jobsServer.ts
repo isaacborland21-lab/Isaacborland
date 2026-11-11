@@ -14,7 +14,7 @@ export const JOB_COLS =
 
 export type JobWho = { userId: string; owner: boolean; name: string; /** may see and change prices (owner, or the invoice switch on this tab) */ canBill: boolean };
 
-/** Signed in AND allowed on this job type (owner, granted the tab in the Admin tab, or any graffiti crew account). */
+/** Signed in AND allowed on this job type (the owner, or granted that tab in the Admin tab). The graffiti switch does not count. */
 export async function requireJobs(type: JobType): Promise<JobWho | NextResponse> {
   const { userId } = auth();
   if (!userId) return fail("Not signed in.", 401);

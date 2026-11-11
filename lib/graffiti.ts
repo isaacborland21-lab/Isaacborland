@@ -231,7 +231,45 @@ export function detailsMessage(missing: string[]): string {
   return `Fill in ${list} first.`;
 }
 
-export function computeCreate(fields: Fields, nowMs: number): Ok<{ row: NewIncident }> | Fail {
+/** How far back a report / finished log may be dated. */
+export const MAX_DAYS_BACK = 366;
+
+/** Noon on the calendar day "YYYY-MM-DD" in `tz`, as epoch ms. Null when the text is not a real date. */
+export function localNoonMs(day: string, tz: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const guess = Date.UTC(y, mo - 1, d, 12, 0, 0);
+  const chk = new Date(guess);
+  if (chk.getUTCFullYear() !== y || chk.getUTCMonth() !== mo - 1 || chk.getUTCDate() !== d) return null;
+  // wall clock in the zone minus the instant = the zone's offset; settle it twice so a daylight-saving day lands right
+  let ms = guess;
+  for (let i = 0; i < 2; i++) {
+    const p = localParts(iso(ms), tz);
+    ms = guess - (Date.UTC(Number(p.y), Number(p.mo) - 1, Number(p.d), Number(p.h), Number(p.mi), Number(p.s)) - ms);
+  }
+  return ms;
+}
+
+/**
+ * The day a report or finished log is dated ("on_date", a local calendar day). Empty or today = the real time now.
+ * Never in the future, and not more than a year back (a typo like 2025 for 2026 is caught).
+ */
+export function pickDay(raw: string | undefined, nowMs: number, tz: string): Ok<{ ms: number }> | Fail {
+  const day = (raw ?? "").trim();
+  if (!day) return { ok: true, ms: nowMs };
+  const noon = localNoonMs(day, tz);
+  if (noon === null) return { ok: false, error: "That date is not valid." };
+  const today = localDate(iso(nowMs), tz);
+  if (day === today) return { ok: true, ms: nowMs };
+  if (day > today) return { ok: false, error: "The date can't be in the future." };
+  if (nowMs - noon > MAX_DAYS_BACK * 86400000) return { ok: false, error: "That date is more than a year back. Check the year." };
+  return { ok: true, ms: noon };
+}
+
+export function computeCreate(fields: Fields, nowMs: number, tz: string = "America/Denver"): Ok<{ row: NewIncident }> | Fail {
   const lat = parseCoord(fields.lat, 90);
   const lng = parseCoord(fields.lng, 180);
   if (lat === null || lng === null) return { ok: false, error: "Pick a location on the map or use GPS" };
@@ -240,6 +278,14 @@ export function computeCreate(fields: Fields, nowMs: number): Ok<{ row: NewIncid
   const mode = fields.mode === "start" || fields.mode === "done" ? fields.mode : "report";
   const lacking = missingDetails({ surface: fields.surface, chemical: fields.chemical }, mode !== "report");
   if (lacking.length > 0) return { ok: false, error: detailsMessage(lacking) };
+
+  // a report or a finished log can be dated a few days back; a live timer job is always "now"
+  let whenMs = nowMs;
+  if (mode !== "start") {
+    const day = pickDay(fields.on_date, nowMs, tz);
+    if (!day.ok) return day;
+    whenMs = day.ms;
+  }
 
   let status: GraffitiStatus = "reported";
   let started: string | null = null;
@@ -251,7 +297,7 @@ export function computeCreate(fields: Fields, nowMs: number): Ok<{ row: NewIncid
     started = iso(photoTime(fields.photo_at, nowMs));
   } else if (mode === "done") {
     status = "removed";
-    finished = removed = iso(nowMs);
+    finished = removed = iso(whenMs);
     const m = parseMinutes(fields.duration_min);
     if (!m.ok) return m;
     duration = m.value;
@@ -267,7 +313,7 @@ export function computeCreate(fields: Fields, nowMs: number): Ok<{ row: NewIncid
       gtype,
       gtype_other: gtype === "other" ? clean(fields.gtype_other, 60) : null,
       description: clean(fields.description, 2000),
-      reported_at: started ?? iso(nowMs),
+      reported_at: started ?? iso(whenMs),
       started_at: started,
       finished_at: finished,
       removed_at: removed,

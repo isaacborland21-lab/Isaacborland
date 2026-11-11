@@ -118,14 +118,14 @@ export async function DELETE(_request: Request, { params }: Ctx) {
   const db = getSupabaseAdmin();
   const { data: row, error: readErr } = await db
     .from("graffiti_incidents")
-    .select("id, created_by, before_photo, after_photo, report_photo")
+    .select("id, before_photo, after_photo, report_photo")
     .eq("id", id)
     .maybeSingle();
   if (readErr) return fail(readErr.message, 500);
   if (!row) return fail("Incident not found.", 404);
-  const r = row as unknown as { created_by: string; before_photo: string | null; after_photo: string | null; report_photo: string | null };
+  const r = row as unknown as { before_photo: string | null; after_photo: string | null; report_photo: string | null };
 
-  if (!who.owner && r.created_by !== who.userId) return fail("Only the person who logged this (or the owner) can delete it.", 403);
+  // anyone with the graffiti tracker may delete a tag (not only who logged it); one on a sent invoice is still protected below
 
   const invoices = await loadInvoices(db);
   const sent = invoices.find((i) => i.job_ids.includes(id));

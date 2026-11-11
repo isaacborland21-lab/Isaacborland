@@ -30,10 +30,11 @@ own list, so work orders, lawn care and other jobs never mix. Graffiti is unchan
 
 **One-time setup:** run `supabase/jobs.sql` in the Supabase SQL editor (creates the `jobs` table; photos go in
 the existing private `graffiti` bucket). Then Admin tab → tick **work orders**, **lawn care** and/or
-**other jobs** for each person. **Crew:** anyone who can use the graffiti tracker can also log work orders, lawn
-care and other jobs. On the `/crew` page they get four big buttons (Graffiti, Work order, Lawn care, Other job);
-Graffiti is the default and works as before, and the phone remembers the last one picked. Crew never see prices
-unless you give them that job tab *and* the invoice switch. Graffiti-only crew accounts still land on `/crew`
+**other jobs** for each person. **The graffiti switch gives graffiti and nothing else.** Work orders, lawn care and
+other jobs each need their own switch, so a graffiti crew account never sees them. On the `/crew` page a person
+gets one big button per tracker they have (Graffiti, Work order, Lawn care, Other job; the buttons only show when
+they have more than one), the first is the default, and the phone remembers the last one picked. Crew never see
+prices unless you give them that job tab *and* the invoice switch. Graffiti-only crew accounts land on `/crew`
 from the main site; an account that has a job tab is not sent there.
 
 - A job has a **title**, optional **work order #**, a **city** (Helena or Bozeman, required), an address
@@ -144,7 +145,7 @@ taken. The owner prints a monthly invoice for the city from `/graffiti/invoice`.
   rest are saved as extra photos right after the report; up to 10 at report time).
 - Photos upload one at a time, each shrunk like the others. If the signal drops part-way, what was
   already added is kept and the message says how many to choose again. Up to 30 extra photos per tag.
-- Each photo shows who added it and when. Whoever added a photo (or the owner) can remove it.
+- Each photo shows who added it and when. Any graffiti crew account can remove a photo.
   Deleting a tag removes all its photos. The list card shows "+N photos".
 - Extra photos are **not** printed on the invoice's photo page (only the before/after photos are).
 - **Logging a tag that is already finished** (Log new → *Already finished? Log it without the timer*):
@@ -207,6 +208,18 @@ taken. The owner prints a monthly invoice for the city from `/graffiti/invoice`.
   it as changed, and earlier months with tags still to invoice are flagged.
 - Only the owner can change settings or undo an invoice. A tag on a sent invoice
   cannot be deleted or moved to the other city.
+- **Deleting a tag**: any account with the graffiti tracker can delete any tag (not only the person who
+  logged it). Tags on a sent invoice are the exception: undo that invoice first.
+- **Dating a report**: *Report it* has a **Date it was found** box and *Already finished* has a **Date it was
+  done** box. They default to today and can be set back up to a year (never forward). A tag dated a few days
+  back is stamped at noon that day (site time zone), so it lands in the right invoice month. The timer job
+  (*Take before photo*) is always "now".
+- **Location and date from a photo**: when a chosen photo still carries its EXIF data (read in the browser
+  before the photo is shrunk), the pin moves to where it was taken and the date box to the day it was taken.
+  A pin moved by hand, or a date typed by hand, is never overridden. Phones and browsers often remove the
+  location from a photo when it is chosen from the library (it depends on the phone and its picker settings),
+  so when it is missing the pin simply stays where it was and a message says so. The saved
+  photo itself carries no location (it is re-drawn to shrink it).
 
 **Notes**
 

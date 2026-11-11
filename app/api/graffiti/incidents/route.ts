@@ -7,6 +7,7 @@ import {
   INCIDENT_COLS,
   isResponse,
   loadPhotos,
+  loadSettings,
   readInput,
   removePhotos,
   requireGraffiti,
@@ -65,10 +66,10 @@ export async function POST(request: Request) {
   const input = await readInput(request);
   if (isResponse(input)) return input;
 
-  const made = computeCreate(input.fields, Date.now());
+  const db = getSupabaseAdmin();
+  const made = computeCreate(input.fields, Date.now(), (await loadSettings(db)).tz);
   if (!made.ok) return fail(made.error, 400);
 
-  const db = getSupabaseAdmin();
   let photoName: string | null = null;
   if (input.photo) {
     const checked = await checkPhoto(input.photo);

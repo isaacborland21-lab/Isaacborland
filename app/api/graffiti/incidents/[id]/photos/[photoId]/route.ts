@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 type Ctx = { params: { id: string; photoId: string } };
 const parseId = (s: string) => (/^\d{1,15}$/.test(s) && Number(s) > 0 ? Number(s) : null);
 
-// Remove one extra photo. Only whoever added it, or the owner, may.
+// Remove one extra photo. Anyone with the graffiti tracker may (not only whoever added it).
 export async function DELETE(_request: Request, { params }: Ctx) {
   const who = await requireGraffiti();
   if (isResponse(who)) return who;
@@ -16,11 +16,10 @@ export async function DELETE(_request: Request, { params }: Ctx) {
   if (id === null || photoId === null) return fail("Bad id.", 400);
 
   const db = getSupabaseAdmin();
-  const { data: row, error: readErr } = await db.from("graffiti_photos").select("id, name, added_by").eq("id", photoId).eq("incident_id", id).maybeSingle();
+  const { data: row, error: readErr } = await db.from("graffiti_photos").select("id, name").eq("id", photoId).eq("incident_id", id).maybeSingle();
   if (readErr) return fail(readErr.message, 500);
   if (!row) return fail("Photo not found.", 404);
-  const r = row as unknown as { id: number; name: string; added_by: string };
-  if (!who.owner && r.added_by !== who.userId) return fail("Only the person who added this photo (or the owner) can remove it.", 403);
+  const r = row as unknown as { id: number; name: string };
 
   const { error } = await db.from("graffiti_photos").delete().eq("id", photoId).eq("incident_id", id);
   if (error) return fail(error.message, 500);
