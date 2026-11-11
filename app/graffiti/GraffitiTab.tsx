@@ -1122,7 +1122,10 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
     // if the photo knows where it was taken, the job saves there (the timer still starts when the photo is handed over)
     await readInfo([f], { date: false, notifyMiss: fromLibrary });
     // keep the earliest photo time if a previous save attempt failed
-    setPending((p) => ({ file: f, at: p ? p.at : at }));
+    // (the ref is set right now too: the GPS callbacks below must already see that a photo is waiting)
+    const next = { file: f, at: pendingRef.current ? pendingRef.current.at : at };
+    pendingRef.current = next;
+    setPending(next);
     if (!pickedRef.current) {
       setHint("Photo taken. Waiting for GPS, then the job saves with the clock started at the photo time.");
       if (!gpsBusy) getGps();
