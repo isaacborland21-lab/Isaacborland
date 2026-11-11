@@ -9,6 +9,7 @@ import GraffitiTab from "./graffiti/GraffitiTab";
 import JobsTab from "./jobs/JobsTab";
 import { normalizeProjects, Project } from "@/lib/projects";
 import { readUrl, writeUrl } from "@/lib/urlState";
+import { ROLES, ROLE_LABEL, Role, applyRole, isRole, roleOf } from "@/lib/roles";
 import AliveBackground from "./AliveBackground";
 import { DEFAULT_PLAN } from "./foodDefaults";
 
@@ -433,6 +434,28 @@ function AdminTab({
     }
   }
 
+  async function setRole(userId: string, role: Role) {
+    const key = `${userId}:role`;
+    setPending(key);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/role", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetUserId: userId, role }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error || "Failed to update the role.");
+      }
+      setUsers((prev) => (prev ? prev.map((u) => (u.id === userId ? { ...u, tabAdmin: applyRole(u.tabAdmin, role) } : u)) : prev));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setPending(null);
+    }
+  }
+
   // Presets cover cases with no real user to point at yet: what a brand-new
   // sign-up gets automatically, and the floor for someone granted nothing.
   const presets: PreviewTarget[] = [
@@ -519,7 +542,7 @@ function AdminTab({
       </div>
 
       <p style={{ fontFamily: sans, fontSize: 13, color: "var(--text-dim)", margin: "0 0 16px 0", borderTop: "1px solid var(--surface-border)", paddingTop: 16 }}>
-        Grant or revoke edit access to each tab, per user.
+        Pick a role to set a person&apos;s job access in one step, or tick individual tabs to fine-tune. A role only changes Graffiti, Work orders, Lawn care, Other jobs and Invoice; their other tabs stay as they are.
       </p>
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         {users.map((u) => (
@@ -531,6 +554,30 @@ function AdminTab({
             {u.owner ? (
               <p style={{ fontFamily: mono, fontSize: 11, color: "var(--accent)", margin: 0 }}>Owner — full access</p>
             ) : (
+              <>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: sans, fontSize: 13, color: "var(--text-dim)", marginBottom: 10, flexWrap: "wrap" }}>
+                Role
+                <select
+                  aria-label={`Role for ${u.firstName || u.email}`}
+                  value={roleOf(u.tabAdmin)}
+                  disabled={pending === `${u.id}:role`}
+                  onChange={(e) => {
+                    if (isRole(e.target.value)) setRole(u.id, e.target.value);
+                  }}
+                  style={{ ...inputStyle, width: "auto", minWidth: 240 }}
+                >
+                  {ROLES.map((r) => (
+                    <option key={r} value={r}>
+                      {ROLE_LABEL[r]}
+                    </option>
+                  ))}
+                  {roleOf(u.tabAdmin) === "custom" && (
+                    <option value="custom" disabled>
+                      Custom (set by the tab boxes)
+                    </option>
+                  )}
+                </select>
+              </label>
               <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
                 {permissionKeys.map((tab) => {
                   const key = `${u.id}:${tab}`;
@@ -551,6 +598,7 @@ function AdminTab({
                   );
                 })}
               </div>
+              </>
             )}
           </div>
         ))}
