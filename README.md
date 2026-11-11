@@ -40,7 +40,7 @@ from the main site; an account that has a job tab is not sent there.
 - A job has a **title**, optional **work order #**, a **city** (Helena or Bozeman, required), an address
   (typed, or **Use GPS** to fill it in and pick the city), notes, and before/after photos.
 - Three ways to log: **Take before photo** (saves + starts the clock), **Log it without starting**, or
-  **Already finished** (type the minutes). Title and city are required before any photo.
+  **Already finished** (type the minutes and add both photos). Title and city are required before any photo.
 - **Billing** is per job: *Hourly*, *Flat price* or *Hours + materials* (a list of materials with amounts).
   Only the owner, or a crew account with the **invoice (prices)** switch on that tab, can see or change
   prices; everyone else never receives them from the server and logs everything as hourly.
@@ -149,9 +149,10 @@ taken. The owner prints a monthly invoice for the city from `/graffiti/invoice`.
   Deleting a tag removes all its photos. The list card shows "+N photos".
 - Extra photos are **not** printed on the invoice's photo page (only the before/after photos are).
 - **Logging a tag that is already finished** (Log new → *Already finished? Log it without the timer*):
-  you can attach its **before** and **after** photos, chosen from the phone's photos or taken on the
-  spot. They are only attached to the tag; the time on site is still the minutes you type (a picked
-  photo's time can't be trusted, so it never sets the time).
+  the **minutes it took** (at least 1), a **before photo** and an **after photo** are all required (the
+  app and the server both refuse it otherwise), because there is no timer to vouch for the job. Photos
+  can be chosen from the phone's photos or taken on the spot. They are only attached to the tag; the
+  time on site is the minutes you type (a picked photo's time can't be trusted, so it never sets the time).
 - **Removing a tag**: *Take before photo* / *Take after photo* open the camera, and an **Or choose a
   photo from your phone** button sits under each (also *Replace after photo* on a finished tag). Either
   way the timer uses the moment the photo is **handed to the site**, not when it was originally taken, so

@@ -69,6 +69,10 @@ export async function POST(request: Request) {
   const db = getSupabaseAdmin();
   const made = computeCreate(input.fields, Date.now(), (await loadSettings(db)).tz);
   if (!made.ok) return fail(made.error, 400);
+  // a job logged as already finished has no timer to prove it, so both photos are required
+  if (input.fields.mode === "done" && (!input.photo || !input.after)) {
+    return fail("A finished job needs both a before photo and an after photo.", 400);
+  }
 
   let photoName: string | null = null;
   if (input.photo) {

@@ -1176,6 +1176,15 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
     if (blockIfLocked()) return;
     const pk = pickedRef.current;
     if (!pk) return toast("Still waiting on GPS. Open Adjust pin on map and move the map to the spot.");
+    if (intent !== "report") {
+      // an already-finished job has no timer, so it needs the minutes and both photos
+      const missing: string[] = [];
+      const mins = Number(minutes.trim());
+      if (!/^\d+$/.test(minutes.trim()) || mins < 1) missing.push("the minutes it took");
+      if (!doneBefore) missing.push("a before photo");
+      if (!doneAfter) missing.push("an after photo");
+      if (missing.length > 0) return toast(`A finished job needs ${missing.join(", ")}.`);
+    }
     setSaving(true);
     try {
       const reporting = intent === "report";
@@ -1470,7 +1479,7 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
             <summary>Already finished? Log it without the timer</summary>
             {dayBox("Date it was done", "done-date")}
             <label className={styles.lbl} htmlFor="gt-min" style={{ marginTop: 14 }}>
-              Minutes it took
+              Minutes it took (required)
             </label>
             <input
               id="gt-min"
@@ -1482,9 +1491,9 @@ function AddForm({ active, toast, onCreated }: { active: boolean; toast: Toast; 
               value={minutes}
               onChange={(e) => setMinutes(e.target.value)}
             />
-            <ChosenPhoto label="Before photo (optional)" testId="done-before" file={doneBefore} onFile={(f) => pickDone(f, setDoneBefore)} blockIfLocked={blockIfLocked} />
-            <ChosenPhoto label="After photo (optional)" testId="done-after" file={doneAfter} onFile={(f) => pickDone(f, setDoneAfter)} blockIfLocked={blockIfLocked} />
-            <div className={styles.hint}>The time on site is the minutes you type. Photos here are only attached to the tag; they don't set the time.</div>
+            <ChosenPhoto label="Before photo (required)" testId="done-before" file={doneBefore} onFile={(f) => pickDone(f, setDoneBefore)} blockIfLocked={blockIfLocked} />
+            <ChosenPhoto label="After photo (required)" testId="done-after" file={doneAfter} onFile={(f) => pickDone(f, setDoneAfter)} blockIfLocked={blockIfLocked} />
+            <div className={styles.hint}>The minutes, a before photo and an after photo are all required. The time on site is the minutes you type; the photos are only attached to the tag and don't set the time.</div>
             <button type="submit" className={`${styles.btn} ${styles.sec} ${styles.block}`} style={{ marginTop: 12 }} disabled={saving}>
               {saving ? "Saving..." : "Save completed job"}
             </button>
