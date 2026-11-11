@@ -10,6 +10,7 @@ import {
   buildInvoice,
   clean,
   diffSnapshot,
+  grandCents,
   isCity,
   isMonth,
   localDate,
@@ -119,7 +120,7 @@ export async function GET(request: Request) {
       if (build.tot.jobs === 0) return fail(`There are no tags selected for this ${CITY_NAMES[city]} invoice.`, 400);
       // The template bills in half-hour steps with a half-hour minimum (that is what its formulas do),
       // so the sheet always uses 30 / 30 whatever the on-screen rounding setting is.
-      const sheetBuild = buildInvoice(src.rows, { ...own, tz, rateCents: src.terms.rateCents, minMin: 30, roundTo: 30, city, only: src.only });
+      const sheetBuild = buildInvoice(src.rows, { ...own, tz, ...src.terms, minMin: 30, roundTo: 30, city, only: src.only });
       const dateParam = url.searchParams.get("date") ?? "";
       const invoiceDate = /^\d{4}-\d{2}-\d{2}$/.test(dateParam) && !Number.isNaN(Date.parse(dateParam)) ? dateParam : src.snap?.invoice_date ?? (picked ? periodOf(picked).to : span.to);
       try {
@@ -148,7 +149,7 @@ export async function GET(request: Request) {
     const sentOut = sent.map((snap) => {
       const b = buildInvoice(rows, { month: snap.month, ...snapRange(snap), tz, ...billingFor(settings, snap), city, only: snap.job_ids });
       const diff = diffSnapshot(snap.job_ids, b.ids);
-      const changed = snap.total_cents !== b.tot.cents || snap.billed_min !== b.tot.billed || snap.actual_min !== b.tot.actual;
+      const changed = snap.total_cents !== grandCents(b.tot) || snap.billed_min !== b.tot.billed || snap.actual_min !== b.tot.actual;
       return { snapshot: snap, build: b, dropped: diff.dropped, changed };
     });
     const working = buildInvoice(unbilledRows, { month, ...period, tz, ...bill, city });
@@ -257,6 +258,12 @@ export async function POST(request: Request) {
       );
     }
     const build = buildInvoice(rows, { month, ...period, tz, ...bill, city, only: wanted });
+    // a chemical bill-back with no price per gallon would go out at $0.00: set the price first
+    const unpriced = build.lines.filter((l) => l.chem !== null && l.chem.unitCents <= 0);
+    if (unpriced.length > 0) {
+      const names = [...new Set(unpriced.map((l) => (l.chem as { label: string }).label))].join(" and ");
+      return fail(`Set the ${names} price per gallon in Billing settings before marking tags that used the chemical bill-back (job ${unpriced.map((l) => "#" + l.id).join(", ")}).`, 400);
+    }
 
     const dateRaw = typeof body.invoice_date === "string" ? body.invoice_date.trim() : "";
     if (dateRaw !== "" && !(/^\d{4}-\d{2}-\d{2}$/.test(dateRaw) && !Number.isNaN(Date.parse(dateRaw)))) return fail("Bad invoice date.", 400);
@@ -278,8 +285,10 @@ export async function POST(request: Request) {
       jobs: build.tot.jobs,
       actual_min: build.tot.actual,
       billed_min: build.tot.billed,
-      total_cents: build.tot.cents,
+      total_cents: grandCents(build.tot), // the hourly work plus the chemical bill-back lines
       rate_cents: bill.rateCents,
+      chem_ssr_cents: bill.chemSsrCents,
+      chem_brick_cents: bill.chemBrickCents,
       min_minutes: bill.minMin,
       round_to: bill.roundTo,
       job_ids: build.ids,

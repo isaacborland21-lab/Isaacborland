@@ -128,6 +128,9 @@ export type Incident = {
   gtype_other?: string | null;
   /** Whoever finished (or took) the job: the account that gets the credit on the invoice. */
   removed_by_name: string | null;
+  /** Chemical bill-back (only for jobs that used a high amount of chemicals): which one and how many gallons. Null = none. */
+  chem_billback?: ChemBillback | null;
+  chem_gallons?: number | null;
   /** Extra photos added to the tag (oldest first). Missing = none. */
   photos?: IncidentPhoto[];
 };
@@ -153,6 +156,31 @@ export function parseMinutes(v: string | null | undefined): Ok<{ value: number |
   const n = Number(s);
   if (n < 0 || n > MAX_MINUTES) return { ok: false, error: "Time taken must be whole minutes (0 to 1440)" };
   return { ok: true, value: n };
+}
+
+// ---------- Chemical bill-back ----------
+
+/** Billed as its own line on the invoice, only when a job used a high amount of chemicals. */
+export const CHEM_BILLBACKS = ["ssr", "bare_brick"] as const;
+export type ChemBillback = (typeof CHEM_BILLBACKS)[number];
+export const CHEM_BILLBACK_NAMES: Record<ChemBillback, string> = { ssr: "SSR", bare_brick: "Bare Brick" };
+export const MAX_CHEM_GALLONS = 50;
+export const isChemBillback = (v: unknown): v is ChemBillback => typeof v === "string" && (CHEM_BILLBACKS as readonly string[]).includes(v);
+
+/**
+ * The bill-back picked on a form: nothing (blank kind), or SSR / Bare Brick with a number of gallons
+ * (blank gallons = 1; up to 2 decimals, more than 0, at most 50).
+ */
+export function parseChemBillback(kindRaw: string | null | undefined, gallonsRaw: string | null | undefined): Ok<{ kind: ChemBillback | null; gallons: number | null }> | Fail {
+  const k = (kindRaw ?? "").trim();
+  if (k === "") return { ok: true, kind: null, gallons: null };
+  if (!isChemBillback(k)) return { ok: false, error: "Chemical bill back must be SSR or Bare Brick." };
+  const g = (gallonsRaw ?? "").trim();
+  if (g === "") return { ok: true, kind: k, gallons: 1 };
+  if (!/^\d+(\.\d{1,2})?$/.test(g)) return { ok: false, error: `Gallons must be a number like 1 or 2.5 (up to ${MAX_CHEM_GALLONS}).` };
+  const n = Number(g);
+  if (n <= 0 || n > MAX_CHEM_GALLONS) return { ok: false, error: `Gallons must be more than 0 and at most ${MAX_CHEM_GALLONS}.` };
+  return { ok: true, kind: k, gallons: n };
 }
 
 function parseCoord(v: string | undefined, limit: number): number | null {
@@ -208,6 +236,8 @@ export type NewIncident = {
   surface: string | null;
   chemical: string | null;
   gtype_other: string | null;
+  chem_billback: ChemBillback | null;
+  chem_gallons: number | null;
 };
 
 /**
@@ -304,6 +334,13 @@ export function computeCreate(fields: Fields, nowMs: number, tz: string = "Ameri
     if (m.value === null || m.value < 1) return { ok: false, error: "Enter how many minutes it took (at least 1)." };
     duration = m.value;
   }
+  // the chemical bill-back only belongs to a job somebody is removing (a plain report has no work yet)
+  let chem: { kind: ChemBillback | null; gallons: number | null } = { kind: null, gallons: null };
+  if (mode !== "report") {
+    const c = parseChemBillback(fields.chem_billback, fields.chem_gallons);
+    if (!c.ok) return c;
+    chem = c;
+  }
 
   return {
     ok: true,
@@ -323,6 +360,8 @@ export function computeCreate(fields: Fields, nowMs: number, tz: string = "Ameri
       urgent: false, // the Urgent option was removed from reporting; a new tag is never urgent
       surface: clean(fields.surface, 80),
       chemical: clean(fields.chemical, 80),
+      chem_billback: chem.kind,
+      chem_gallons: chem.gallons,
     },
   };
 }
@@ -353,6 +392,8 @@ export type IncidentPatch = Partial<{
   surface: string | null;
   chemical: string | null;
   gtype_other: string | null;
+  chem_billback: ChemBillback | null;
+  chem_gallons: number | null;
   /** "me" = I'll take this, "release" = give it back. The route turns this into the claimed_by columns. */
   claim: "me" | "release";
 }>;
@@ -462,6 +503,12 @@ export function computeUpdate(
   if (has("urgent") && !flag(fields.urgent)) patch.urgent = false;
   if (has("surface")) patch.surface = clean(fields.surface, 80);
   if (has("chemical")) patch.chemical = clean(fields.chemical, 80);
+  if (has("chem_billback")) {
+    const c = parseChemBillback(fields.chem_billback, fields.chem_gallons);
+    if (!c.ok) return c;
+    patch.chem_billback = c.kind;
+    patch.chem_gallons = c.gallons;
+  }
   if (has("claim")) {
     if (fields.claim !== "me" && fields.claim !== "release") return { ok: false, error: "Bad claim" };
     patch.claim = fields.claim;
@@ -667,6 +714,9 @@ export type BillingSettings = {
   bill_to_helena: string;
   po_number_helena: string;
   rate: string; // dollars per hour
+  /** Chemical bill-back prices, dollars per gallon. */
+  chem_price_ssr: string;
+  chem_price_brick: string;
   min_minutes: string;
   round_to: string;
   terms: string;
@@ -682,6 +732,8 @@ export const SETTING_DEFAULTS: BillingSettings = {
   bill_to_helena: "",
   po_number_helena: "",
   rate: "0",
+  chem_price_ssr: "0",
+  chem_price_brick: "0",
   min_minutes: "30",
   round_to: "1",
   terms: "Net 30",
@@ -712,6 +764,8 @@ export function sanitizeSettings(input: Record<string, unknown>, current: Billin
     po_number_helena: str("po_number_helena", 80),
     terms: str("terms", 200),
     rate: current.rate,
+    chem_price_ssr: current.chem_price_ssr,
+    chem_price_brick: current.chem_price_brick,
     min_minutes: current.min_minutes,
     round_to: "1",
     tz: current.tz,
@@ -719,6 +773,11 @@ export function sanitizeSettings(input: Record<string, unknown>, current: Billin
   const rate = Number(String(input.rate ?? "").trim());
   if (String(input.rate ?? "").trim() !== "" && Number.isFinite(rate) && rate >= 0 && rate <= 10000) {
     next.rate = String(Math.round(rate * 100) / 100);
+  }
+  for (const k of ["chem_price_ssr", "chem_price_brick"] as const) {
+    const raw = String(input[k] ?? "").trim();
+    const v = Number(raw);
+    if (raw !== "" && Number.isFinite(v) && v >= 0 && v <= 10000) next[k] = String(Math.round(v * 100) / 100);
   }
   const minRaw = String(input.min_minutes ?? "").trim();
   if (/^\d+$/.test(minRaw) && Number(minRaw) <= MAX_MINUTES) next.min_minutes = String(Number(minRaw));
@@ -770,6 +829,8 @@ export type InvoiceRow = {
   surface: string | null;
   chemical: string | null;
   gtype_other?: string | null;
+  chem_billback?: string | null;
+  chem_gallons?: number | string | null;
   /** Owner's city override ("bozeman" / "helena"); null = worked out from the pin. */
   city?: string | null;
   /** Name of the crew account that did the job (worked out on the server). Null = unknown. */
@@ -788,9 +849,16 @@ export type InvoiceLine = InvoiceRow & {
   person: string; // who did it (UNASSIGNED when nobody is recorded)
   cityName: City; // Helena or Bozeman (override, else from the pin)
   cityAuto: City; // where the pin says it is
+  /** The chemical bill-back line for this tag (billed on its own line), or null. */
+  chem: ChemLine | null;
 };
 
-export type Totals = { jobs: number; actual: number; billed: number; cents: number };
+/** One chemical bill-back: gallons x the price per gallon set in the billing settings. */
+export type ChemLine = { kind: ChemBillback; label: string; gallons: number; unitCents: number; cents: number };
+
+/** `cents` is the hourly work only; `chemCents` is the chemical bill-back lines. The invoice total is both (see grandCents). */
+export type Totals = { jobs: number; actual: number; billed: number; cents: number; chemCents: number };
+export const grandCents = (t: Pick<Totals, "cents" | "chemCents">) => t.cents + t.chemCents;
 
 export type PersonGroup = { name: string; lines: InvoiceLine[]; tot: Totals };
 
@@ -804,7 +872,19 @@ export type InvoiceBuild = {
   warn: { notime: number[]; noaddr: number[]; noafter: number[] }; // job ids
 };
 
-const emptyTotals = (): Totals => ({ jobs: 0, actual: 0, billed: 0, cents: 0 });
+const emptyTotals = (): Totals => ({ jobs: 0, actual: 0, billed: 0, cents: 0, chemCents: 0 });
+
+/** The chemical bill-back of a tag at the given prices (cents per gallon), or null when it has none. */
+export function chemLineOf(r: { chem_billback?: string | null; chem_gallons?: number | string | null }, prices: { ssrCents: number; brickCents: number }): ChemLine | null {
+  if (!isChemBillback(r.chem_billback)) return null;
+  const g = Number(r.chem_gallons);
+  const gallons = Number.isFinite(g) && g > 0 ? g : 1;
+  const unitCents = r.chem_billback === "ssr" ? prices.ssrCents : prices.brickCents;
+  return { kind: r.chem_billback, label: CHEM_BILLBACK_NAMES[r.chem_billback], gallons, unitCents, cents: Math.round(gallons * unitCents) };
+}
+
+/** Tags with a chemical bill-back whose price per gallon is still 0 (set it in the billing settings). */
+export const chemUnpriced = (lines: InvoiceLine[]) => lines.filter((l) => l.chem !== null && l.chem.unitCents <= 0).map((l) => l.id);
 
 /** What one tag bills: the minimum applies per tag however short the job was. */
 export function billTag(actual: number | null, minMin: number, roundTo: number, rateCents: number) {
@@ -816,11 +896,13 @@ export function billTag(actual: number | null, minMin: number, roundTo: number, 
 export const dollarsToCents = (rate: string) => Math.round((Number(rate) || 0) * 100);
 
 /** An invoiced month keeps the rate / minimum / rounding it was sent with; other months use today's settings. */
-export function billingFor(settings: BillingSettings, snap: Pick<InvoiceSnapshot, "rate_cents" | "min_minutes" | "round_to"> | null) {
+export function billingFor(settings: BillingSettings, snap: Pick<InvoiceSnapshot, "rate_cents" | "min_minutes" | "round_to" | "chem_ssr_cents" | "chem_brick_cents"> | null) {
   return {
     rateCents: snap ? snap.rate_cents : dollarsToCents(settings.rate),
     minMin: snap ? snap.min_minutes : Number(settings.min_minutes) || 0,
     roundTo: snap ? snap.round_to : Number(settings.round_to) || 1,
+    chemSsrCents: snap ? snap.chem_ssr_cents ?? 0 : dollarsToCents(settings.chem_price_ssr),
+    chemBrickCents: snap ? snap.chem_brick_cents ?? 0 : dollarsToCents(settings.chem_price_brick),
   };
 }
 
@@ -844,6 +926,7 @@ export function summarize(lines: InvoiceLine[]): Pick<InvoiceBuild, "people" | "
       t.actual += line.actual ?? 0;
       t.billed += line.billed;
       t.cents += line.cents;
+      t.chemCents += line.chem?.cents ?? 0;
     }
   }
   out.people.sort((a, b) => (a.name === UNASSIGNED ? 1 : b.name === UNASSIGNED ? -1 : a.name.localeCompare(b.name)));
@@ -856,7 +939,7 @@ export function summarize(lines: InvoiceLine[]): Pick<InvoiceBuild, "people" | "
  */
 export function buildInvoice(
   rows: InvoiceRow[],
-  o: { month: string; tz: string; rateCents: number; minMin: number; roundTo: number; city?: City; only?: number[]; from?: string; to?: string },
+  o: { month: string; tz: string; rateCents: number; minMin: number; roundTo: number; chemSsrCents?: number; chemBrickCents?: number; city?: City; only?: number[]; from?: string; to?: string },
 ): InvoiceBuild {
   const only = o.only ? new Set(o.only) : null;
   const inRange = o.from && o.to ? { from: o.from, to: o.to } : null;
@@ -881,7 +964,8 @@ export function buildInvoice(
     const { billed, cents, minApplied } = billTag(actual, o.minMin, o.roundTo, o.rateCents);
     const type: GraffitiType = isType(r.gtype) ? r.gtype : "other";
     const person = (r.done_by ?? "").trim() || UNASSIGNED;
-    lines.push({ ...r, type, actual, billed, cents, minApplied, day: localDate(r.removed_at, o.tz), person, cityName: cityOf(r), cityAuto: autoCity(r.lat, r.lng) });
+    const chem = chemLineOf(r, { ssrCents: o.chemSsrCents ?? 0, brickCents: o.chemBrickCents ?? 0 });
+    lines.push({ ...r, type, actual, billed, cents, minApplied, day: localDate(r.removed_at, o.tz), person, cityName: cityOf(r), cityAuto: autoCity(r.lat, r.lng), chem });
     if (actual === null) warn.notime.push(r.id);
     if (!r.address || r.address.trim() === "") warn.noaddr.push(r.id);
     if (!r.after_photo) warn.noafter.push(r.id);
@@ -904,6 +988,9 @@ export type InvoiceSnapshot = {
   rate_cents: number;
   min_minutes: number;
   round_to: number;
+  /** Chemical bill-back prices (cents per gallon) the invoice was sent with. Missing = 0 (no bill-back then). */
+  chem_ssr_cents?: number;
+  chem_brick_cents?: number;
   job_ids: number[];
   /** Set when the invoice covers a date range instead of the whole month (`month` is then the month of date_from). */
   date_from?: string | null;
@@ -974,7 +1061,8 @@ export function buildCsv(
 ): string {
   const head = [
     "Invoice", "Job #", "Date finished", "Done by", "Location / intersection", "Tag type", "Surface", "Chemical used", "Started", "Finished",
-    "Actual minutes", "Billed minutes", "Minimum applied", "Rate per hour", "Amount", "Notes", "Description", "Latitude", "Longitude",
+    "Actual minutes", "Billed minutes", "Minimum applied", "Rate per hour", "Amount", "Chemical bill-back", "Gallons", "Price per gallon", "Chemical amount",
+    "Notes", "Description", "Latitude", "Longitude",
   ];
   const rows: (string | number | null)[][] = [head];
   for (const r of b.lines) {
@@ -985,10 +1073,12 @@ export function buildCsv(
       localStamp(r.finished_at ?? r.removed_at, o.tz),
       r.actual, r.billed, r.minApplied ? "yes" : "no",
       (o.rateCents / 100).toFixed(2), (r.cents / 100).toFixed(2),
+      r.chem ? r.chem.label : "", r.chem ? r.chem.gallons : "", r.chem ? (r.chem.unitCents / 100).toFixed(2) : "", r.chem ? (r.chem.cents / 100).toFixed(2) : "",
       csvSafe(r.notes), csvSafe(r.description), r.lat, r.lng,
     ]);
   }
   rows.push([]);
-  rows.push(["TOTAL", "", "", "", "", "", "", "", "", "", b.tot.actual, b.tot.billed, "", "", (b.tot.cents / 100).toFixed(2)]);
+  rows.push(["TOTAL", "", "", "", "", "", "", "", "", "", b.tot.actual, b.tot.billed, "", "", (b.tot.cents / 100).toFixed(2), "", "", "", (b.tot.chemCents / 100).toFixed(2)]);
+  rows.push(["TOTAL DUE (work + chemical bill-back)", "", "", "", "", "", "", "", "", "", "", "", "", "", (grandCents(b.tot) / 100).toFixed(2)]);
   return "﻿" + rows.map((r) => r.map(csvCell).join(",")).join("\r\n") + "\r\n";
 }

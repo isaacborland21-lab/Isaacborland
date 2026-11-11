@@ -20,6 +20,8 @@ import {
   defaultInvoiceNo,
   isCity,
   summarize,
+  grandCents,
+  chemUnpriced,
   fmtClock,
   fmtLongDate,
   fmtPlainDate,
@@ -271,6 +273,8 @@ export default function InvoicePage() {
     noaddr: shownLines.filter((l) => !l.address || l.address.trim() === "").map((l) => l.id),
     noafter: shownLines.filter((l) => !l.after_photo).map((l) => l.id),
   };
+  // ticked tags with a chemical bill-back whose price per gallon is not set yet (they would invoice at $0.00)
+  const unpricedChem = viewing ? [] : chemUnpriced(shownLines);
   const label = periodLabel(m, range?.from, range?.to);
   const periodQs = range ? `from=${range.from}&to=${range.to}` : `month=${m}`;
   const cityName = CITY_NAMES[c];
@@ -414,7 +418,7 @@ export default function InvoicePage() {
               )}
               {x.changed && (
                 <span className={styles.sub} style={{ color: "#8a5a00" }}>
-                  <b>Times changed since it was sent:</b> it was {money(sn.total_cents)} for {sn.billed_min} billed minutes; with today&apos;s records it is {money(x.build.tot.cents)} for{" "}
+                  <b>Times changed since it was sent:</b> it was {money(sn.total_cents)} for {sn.billed_min} billed minutes; with today&apos;s records it is {money(grandCents(x.build.tot))} for{" "}
                   {x.build.tot.billed} billed minutes.
                 </span>
               )}
@@ -444,7 +448,7 @@ export default function InvoicePage() {
           (data.build.lines.length > 0 ? (
             <div className={`${styles.panel} ${styles.warn}`} data-testid="not-invoiced-panel">
               <span className={`${styles.pill} ${styles.pa}`}>Not invoiced</span> <b>{cityName}, {label}</b> has {plural(data.build.lines.length, "completed tag")} still to invoice. Tick the ones
-              for this invoice: <b data-testid="ticked-count">{shownLines.length}</b> ticked, <b>{money(tot.cents)}</b>.
+              for this invoice: <b data-testid="ticked-count">{shownLines.length}</b> ticked, <b>{money(grandCents(tot))}</b>.
               <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                 <button type="button" className={`${styles.btn} ${styles.sec}`} data-testid="tick-all" onClick={() => setUnticked(new Set())}>
                   Tick all
@@ -456,8 +460,8 @@ export default function InvoicePage() {
                   type="button"
                   className={`${styles.btn} ${styles.green}`}
                   data-testid="mark-btn"
-                  disabled={busy || rateCents === 0 || shownLines.length === 0}
-                  onClick={() => mark(tickedIds, tot.cents)}
+                  disabled={busy || rateCents === 0 || shownLines.length === 0 || unpricedChem.length > 0}
+                  onClick={() => mark(tickedIds, grandCents(tot))}
                 >
                   Mark {plural(shownLines.length, "ticked tag")} as invoiced
                 </button>
@@ -486,6 +490,12 @@ export default function InvoicePage() {
               </span>
             ))}
             .
+          </div>
+        )}
+
+        {unpricedChem.length > 0 && (
+          <div className={`${styles.panel} ${styles.warn}`} data-testid="chem-price-warning">
+            <b>Chemical bill-back price is not set</b> for job {jobList(unpricedChem)}, so it would invoice at $0.00. {isOwner ? <>Open <i>Billing settings</i> below and enter the price per gallon.</> : "Ask the owner to set it."}
           </div>
         )}
 
@@ -648,6 +658,14 @@ export default function InvoicePage() {
                   </select>
                 </div>
                 <div>
+                  <label className={styles.fl} htmlFor="s-chem-ssr">Chemical bill-back: SSR ($ per gallon)</label>
+                  <input id="s-chem-ssr" type="number" step="0.01" min="0" value={draft.chem_price_ssr} onChange={(e) => setDraft({ ...draft, chem_price_ssr: e.target.value })} />
+                </div>
+                <div>
+                  <label className={styles.fl} htmlFor="s-chem-brick">Chemical bill-back: Bare Brick ($ per gallon)</label>
+                  <input id="s-chem-brick" type="number" step="0.01" min="0" value={draft.chem_price_brick} onChange={(e) => setDraft({ ...draft, chem_price_brick: e.target.value })} />
+                </div>
+                <div>
                   <label className={styles.fl} htmlFor="s-po">Contract / PO #: Bozeman</label>
                   <input id="s-po" type="text" value={draft.po_number} onChange={(e) => setDraft({ ...draft, po_number: e.target.value })} />
                 </div>
@@ -670,7 +688,7 @@ export default function InvoicePage() {
                 </button>
               </p>
               <p className={styles.sub} style={{ marginTop: 8 }}>
-                Changing these does not alter months already marked invoiced. They keep the rate and minimum they were sent with.
+                Changing these does not alter months already marked invoiced. They keep the rate, minimum and chemical prices they were sent with.
               </p>
             </form>
           )}
@@ -714,6 +732,7 @@ export default function InvoicePage() {
         <div className={styles.terms}>
           Graffiti removal in {cityName}, {label}. Rate {money(rateCents)} per hour, minimum {minMin} minutes billed per tag
           {roundTo > 1 ? `, time rounded up to the next ${roundTo} minutes` : ""}.
+          {shownLines.some((l) => l.chem) && " Chemical bill-back is billed on its own line, per gallon."}
         </div>
 
         {build.lines.length === 0 ? (
@@ -755,7 +774,8 @@ export default function InvoicePage() {
                             const fin = r.finished_at ?? r.removed_at;
                             const detail = r.surface ? `on ${r.surface}` : "";
                             return (
-                              <tr key={r.id} className={ticked ? undefined : `${styles.off} ${styles.noprint}`} data-testid="tag-row" data-ticked={ticked}>
+                              <Fragment key={r.id}>
+                              <tr className={ticked ? undefined : `${styles.off} ${styles.noprint}`} data-testid="tag-row" data-ticked={ticked}>
                                 {!viewing && (
                                   <td className={styles.noprint}>
                                     <input type="checkbox" checked={ticked} aria-label={`Put job ${r.id} on this invoice`} onChange={() => toggle(r.id)} />
@@ -799,6 +819,20 @@ export default function InvoicePage() {
                                   </td>
                                 )}
                               </tr>
+                              {r.chem && (
+                                <tr className={ticked ? undefined : `${styles.off} ${styles.noprint}`} data-testid="chem-row">
+                                  {!viewing && <td className={styles.noprint} />}
+                                  <td colSpan={4} style={{ paddingLeft: 18 }}>
+                                    Chemical bill back: {r.chem.label}, {r.chem.gallons} gal at {money(r.chem.unitCents)} per gallon
+                                    <span className={styles.sub}>for job #{r.id}</span>
+                                  </td>
+                                  <td />
+                                  <td className={styles.n}>{r.chem.gallons} gal</td>
+                                  <td className={styles.n} data-testid="chem-amount">{money(r.chem.cents)}</td>
+                                  {!viewing && <td className={styles.noprint} />}
+                                </tr>
+                              )}
+                              </Fragment>
                             );
                           })}
                           <tr className={`${styles.subtotal} ${on.length === 0 ? styles.noprint : ""}`} data-testid="person-subtotal">
@@ -806,7 +840,7 @@ export default function InvoicePage() {
                               Subtotal: {p.name}
                             </td>
                             <td className={styles.n}>{hours(pt.billed)}</td>
-                            <td className={styles.n}>{money(pt.cents)}</td>
+                            <td className={styles.n}>{money(grandCents(pt))}</td>
                             {!viewing && <td className={styles.noprint} />}
                           </tr>
                         </Fragment>
@@ -841,6 +875,15 @@ export default function InvoicePage() {
                       </tr>
                     ) : null;
                   })}
+                  {tot.chemCents > 0 && (
+                    <tr data-testid="chem-summary">
+                      <td>Chemical bill-back</td>
+                      <td className={styles.n}>{shownLines.filter((l) => l.chem).length}</td>
+                      <td className={styles.n} />
+                      <td className={styles.n} />
+                      <td className={styles.n}>{money(tot.chemCents)}</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
               <div className={styles.total}>
@@ -858,7 +901,7 @@ export default function InvoicePage() {
                 </div>
                 <div className={styles.big}>
                   <span>Total due</span>
-                  <span data-testid="total-due">{money(tot.cents)}</span>
+                  <span data-testid="total-due">{money(grandCents(tot))}</span>
                 </div>
               </div>
             </div>
