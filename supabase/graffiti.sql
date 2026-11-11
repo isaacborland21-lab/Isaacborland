@@ -145,3 +145,9 @@ alter table public.graffiti_incidents drop constraint if exists graffiti_inciden
 alter table public.graffiti_incidents add constraint graffiti_incidents_chem_gallons_check check (chem_gallons is null or (chem_gallons > 0 and chem_gallons <= 50));
 alter table public.graffiti_invoices add column if not exists chem_ssr_cents   integer not null default 0;
 alter table public.graffiti_invoices add column if not exists chem_brick_cents integer not null default 0;
+
+-- New tag type: Outdated/tattered flyer(s). The "chalk" type is now labelled "Chalk pen/sharpie" in the app (same stored value).
+alter table public.graffiti_incidents drop constraint if exists graffiti_incidents_gtype_check;
+alter table public.graffiti_incidents
+  add constraint graffiti_incidents_gtype_check
+  check (gtype in ('slap', 'chalk', 'sharpie', 'spray', 'flyer', 'other', 'ssr', 'powerwash'));

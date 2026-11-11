@@ -167,7 +167,7 @@ taken. The owner prints a monthly invoice for the city from `/graffiti/invoice`.
   invoice and the CSV still group by that person. The **Google Sheets download does
   not**: its Invoice Sheet is one list of every tag removed (oldest first, no person
   headings or subtotals, one total), and the Instance Reporting tab keeps a *Done by* column.
-- The crew record the **type of tag** (Slap tag, Chalk pen, Sharpie, Spray paint, Other), **what it is on** and the
+- The crew record the **type of tag** (Slap tag, Chalk pen/sharpie, Spray paint, Outdated/tattered flyer(s), Other), **what it is on** and the
   **chemical used** (boxes: SSR, Bare brick, Razor, Other; paint-over jobs use *Other* and type it in). Choosing *Other* on the tag type, what it's on or the chemical opens a box to type it in. They are in the CSV, and the tag type fills the sheet's *Graffiti type* column
   (so the line reads "Graffiti Removal at Main St, Slap tag on Electrical box").
 - Invoice page → *Google Sheets invoice*: upload your own invoice sheet **once**
