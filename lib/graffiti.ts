@@ -300,6 +300,8 @@ export function computeCreate(fields: Fields, nowMs: number, tz: string = "Ameri
     finished = removed = iso(whenMs);
     const m = parseMinutes(fields.duration_min);
     if (!m.ok) return m;
+    // a finished job has no timer, so the time on site has to be typed in
+    if (m.value === null || m.value < 1) return { ok: false, error: "Enter how many minutes it took (at least 1)." };
     duration = m.value;
   }
 
