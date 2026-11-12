@@ -131,11 +131,11 @@
 }
 
 /* route labels on the map (Leaflet divIcons) */
-:global(.snow-pin) {
+.snowMap :global(.snow-pin) {
   background: none;
   border: 0;
 }
-:global(.snow-pin span) {
+.snowMap :global(.snow-pin span) {
   display: inline-block;
   transform: translate(-50%, -100%);
   white-space: nowrap;
@@ -147,7 +147,7 @@
   border: 2px solid #c62828;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
 }
-:global(.snow-pin.on span) {
+.snowMap :global(.snow-pin.on span) {
   background: #c62828;
   color: #fff;
   font-size: 13px;
