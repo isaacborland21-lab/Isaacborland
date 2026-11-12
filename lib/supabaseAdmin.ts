@@ -15,7 +15,7 @@ export function getSupabaseAdmin() {
   });
 }
 
-export const VALID_TABS = ["home", "projects", "food", "about", "contact", "graffiti", "workorders", "lawn", "otherjobs"] as const;
+export const VALID_TABS = ["home", "projects", "food", "about", "contact", "graffiti", "workorders", "lawn", "otherjobs", "snow"] as const;
 export type ValidTab = (typeof VALID_TABS)[number];
 
 export function isValidTab(tab: string): tab is ValidTab {
