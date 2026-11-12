@@ -256,6 +256,19 @@ A **Snow removal** button on the `/crew` page (and a *Snow removal* tab on the m
   saves the rest. While the crew page is open, saved routes still open with no signal. (The site itself has no offline mode, so
   a phone with zero signal can't load the page from scratch. Open it before heading out.)
 
+**Stops (route PDFs with one page per property):** when you pick a PDF, the site reads the big heading at the top of
+each page and turns the route into a list of stops ("Tinworks Art", "Story Mill Community Center Lot", "1515 S Black Ave"…);
+the route's name is filled from the PDF's title. This works with PDFs exported from Google Docs or Word (pages of text +
+pictures). A PDF that's only scanned pictures has no text to read, so it shows as one route with no stops.
+- After adding, the route opens for editing: **Find N stops on the map** looks each stop up on OpenStreetMap (one a second;
+  addresses like "4527 Graf St" are found best, business names sometimes, "Overview" pages never). **Check every pin it
+  places**, then fix any with **Tap the map** or **Here** and press **Save**.
+- Crew see the stops as a list under the route (tap one to go to its page) and as labels on the map. When a phone with good
+  GPS (±400 ft or better) gets within about 500 ft of a pinned stop, the crew page says *You're at Tinworks Art* and opens that
+  page by itself, once per arrival.
+- **Replace PDF** reads the new pages and keeps the pins of stops whose headings didn't change.
+- Only the pages on or near the screen are drawn, so long image-heavy route PDFs don't run phones out of memory when zoomed.
+
 **Who sees it:** you, and anyone you tick **snow removal** for in the Admin tab. It's its own switch, not part of the role
 dropdown, so picking a role never turns it on or off. Snow-only crew land on `/crew` like graffiti-only accounts. Only you can add
 or change routes.

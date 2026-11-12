@@ -9,6 +9,7 @@ import {
   cleanName,
   cleanNotes,
   cleanPin,
+  cleanStops,
   looksLikePdf,
   routePath,
   sortRoutes,
@@ -42,30 +43,34 @@ async function checkUpload(db: Db, id: string): Promise<{ size: number; pdf: boo
 /**
  * Owner: confirm a new upload (step 2 after POST /api/snow/routes), or change a route's name, notes or pin.
  * With `replaces`, the new PDF takes the old route's place in the list and the old file is deleted.
+ * `stops` (one per page, read from the PDF in the browser) replaces the route's stops; leave it out to keep them.
  */
 export async function PUT(request: Request, { params }: Ctx) {
   const who = await requireSnow(true);
   if (isResponse(who)) return who;
   if (!ROUTE_ID_RE.test(params.id)) return fail("Route not found.", 404);
 
-  let body: { name?: unknown; notes?: unknown; lat?: unknown; lng?: unknown; replaces?: unknown };
+  let body: { name?: unknown; notes?: unknown; lat?: unknown; lng?: unknown; replaces?: unknown; stops?: unknown };
   try {
     body = await request.json();
   } catch {
     return fail("Invalid request.", 400);
   }
+  if (!body || typeof body !== "object") return fail("Invalid request.", 400);
   const name = cleanName(body.name);
   if (!name.ok) return fail(name.error, 400);
   const pin = cleanPin(body.lat, body.lng);
   if (!pin.ok) return fail(pin.error, 400);
   const notes = cleanNotes(body.notes);
+  const stops = "stops" in body ? cleanStops(body.stops) : null;
+  if (stops && !stops.ok) return fail(stops.error, 400);
 
   const db = getSupabaseAdmin();
   const routes = await loadRoutes(db);
   const existing = routes.find((r) => r.id === params.id);
 
   if (existing) {
-    const next = routes.map((r) => (r.id === existing.id ? { ...r, name: name.name, notes, lat: pin.lat, lng: pin.lng } : r));
+    const next = routes.map((r) => (r.id === existing.id ? { ...r, name: name.name, notes, lat: pin.lat, lng: pin.lng, stops: stops ? stops.stops : r.stops } : r));
     const err = await saveRoutes(db, next);
     if (err) return fail(err, 500);
     return NextResponse.json({ routes: sortRoutes(next) }, { headers: noStore });
@@ -88,6 +93,7 @@ export async function PUT(request: Request, { params }: Ctx) {
     uploaded_by_name: who.name,
     lat: pin.lat,
     lng: pin.lng,
+    stops: stops ? stops.stops : [],
   };
   const replaces = typeof body.replaces === "string" && ROUTE_ID_RE.test(body.replaces) ? body.replaces : null;
   const old = replaces ? routes.find((r) => r.id === replaces) : undefined;
