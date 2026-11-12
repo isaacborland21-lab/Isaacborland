@@ -247,8 +247,8 @@ A **Snow removal** button on the `/crew` page (and a *Snow removal* tab on the m
 
 - **Where you are:** a live map with the phone's position (blue dot and accuracy ring) and a red label for each pinned route.
   Tap a label to open that route. **Center on me** jumps back to the phone.
-- **The snow route:** the route's PDF (Google Maps screenshots with the roads and sidewalks we plow drawn in red), drawn right
-  on the page with **+ / −** zoom, **Full screen** for reading in the truck, and **Open PDF** for the phone's own viewer.
+- **The snow route:** the route's PDF (Google Maps screenshots with the roads and sidewalks we plow drawn in red), one page
+  at a time, with **+ / −** zoom, **Full screen** for reading in the truck, and **Open PDF** for the phone's own viewer.
 - **Closest route:** routes are listed by name with their distance from the phone. On a phone's first visit the closest
   pinned route opens by itself; after that the phone remembers the last route picked and offers *Closest to you: … Open it*
   when a different route is nearer.
@@ -267,7 +267,9 @@ pictures). A PDF that's only scanned pictures has no text to read, so it shows a
   GPS (±400 ft or better) gets within about 500 ft of a pinned stop, the crew page says *You're at Tinworks Art* and opens that
   page by itself, once per arrival.
 - **Replace PDF** reads the new pages and keeps the pins of stops whose headings didn't change.
-- Only the pages on or near the screen are drawn, so long image-heavy route PDFs don't run phones out of memory when zoomed.
+- The route shows **one page (one location) at a time**: ‹ Prev / Next › (or swipe left/right when not zoomed in) to move
+  through it, with the stop's name on top. The full stop list is folded under *All stops*. The phone remembers the page each
+  route was left on. Only that one page is drawn, so long aerial-photo PDFs stay well inside a phone's memory.
 
 **Who sees it:** you, and anyone you tick **snow removal** for in the Admin tab. It's its own switch, not part of the role
 dropdown, so picking a role never turns it on or off. Snow-only crew land on `/crew` like graffiti-only accounts. Only you can add

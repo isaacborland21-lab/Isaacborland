@@ -329,9 +329,9 @@ export default function SnowTab({ isOwner, active = true }: { isOwner: boolean; 
           {selected.notes && <p className={s.routeNotes}>{selected.notes}</p>}
 
           {selected.stops.length > 1 && (
-            <details className={s.stops} open data-testid="snow-stops">
+            <details className={s.stops} data-testid="snow-stops">
               <summary>
-                Stops ({selected.stops.length}) <span className={s.stopsHint}>tap one to go to its page</span>
+                All stops ({selected.stops.length}) <span className={s.stopsHint}>tap one to go to its page</span>
               </summary>
               <ol>
                 {selected.stops.map((st) => {
