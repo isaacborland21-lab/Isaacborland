@@ -393,8 +393,14 @@ function RouteRow({
   }, [route, editing]);
 
   const pinnedStops = route.stops.filter((x) => x.lat !== null).length;
+  // map searches look around this route's other pins first, then the phone, then Bozeman
+  const pinnedStop = stops.find((x) => x.lat !== null && x.lng !== null);
   const near: LatLng =
-    stops.find((x) => x.lat !== null && x.lng !== null) ?? (route.lat !== null && route.lng !== null ? { lat: route.lat, lng: route.lng } : null) ?? here ?? BOZEMAN;
+    pinnedStop && pinnedStop.lat !== null && pinnedStop.lng !== null
+      ? { lat: pinnedStop.lat, lng: pinnedStop.lng }
+      : route.lat !== null && route.lng !== null
+        ? { lat: route.lat, lng: route.lng }
+        : here ?? BOZEMAN;
 
   async function save() {
     setErr(null);
