@@ -240,3 +240,30 @@ taken. The owner prints a monthly invoice for the city from `/graffiti/invoice`.
   on screen so the crew can retry when they have signal.
 - Maps use Leaflet from unpkg and OpenStreetMap tiles; intersection lookup uses
   the free Overpass and Nominatim services (no API keys).
+
+## Snow removal
+
+A **Snow removal** button on the `/crew` page (and a *Snow removal* tab on the main site for you). It isn't a log; it shows the crew:
+
+- **Where you are:** a live map with the phone's position (blue dot and accuracy ring) and a red label for each pinned route.
+  Tap a label to open that route. **Center on me** jumps back to the phone.
+- **The snow route:** the route's PDF (Google Maps screenshots with the roads and sidewalks we plow drawn in red), drawn right
+  on the page with **+ / −** zoom, **Full screen** for reading in the truck, and **Open PDF** for the phone's own viewer.
+- **Closest route:** routes are listed by name with their distance from the phone. On a phone's first visit the closest
+  pinned route opens by itself; after that the phone remembers the last route picked and offers *Closest to you: … Open it*
+  when a different route is nearer.
+- **Weak or no signal:** every route that's been opened stays saved on the phone, and **Save all routes for no-signal use**
+  saves the rest. While the crew page is open, saved routes still open with no signal. (The site itself has no offline mode, so
+  a phone with zero signal can't load the page from scratch. Open it before heading out.)
+
+**Who sees it:** you, and anyone you tick **snow removal** for in the Admin tab. It's its own switch, not part of the role
+dropdown, so picking a role never turns it on or off. Snow-only crew land on `/crew` like graffiti-only accounts. Only you can add
+or change routes.
+
+**Adding routes (you only):** open the tab, then **Manage routes** at the bottom → name, the PDF, optional notes for the crew, and an
+optional map pin (**Tap the map** where the route is, or **Use my location**). Without a pin a route still shows in the list, just
+not on the map or as "closest". Each route can be edited (name, notes, pin), have its PDF replaced, or be deleted.
+
+**Setup:** nothing to run. The PDFs go in a new private storage bucket, `snow`, that the site creates itself the first time you
+upload a route. The route list is a small file in the same bucket, so there's no new database table. PDFs upload straight from
+your browser to storage, so large ones are fine (45 MB max per PDF; Supabase's free plan caps files at 50 MB).

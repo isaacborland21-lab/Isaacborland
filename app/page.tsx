@@ -7,6 +7,7 @@ import FoodTab, { FoodContent } from "./FoodTab";
 import ProjectsTab from "./ProjectsTab";
 import GraffitiTab from "./graffiti/GraffitiTab";
 import JobsTab from "./jobs/JobsTab";
+import SnowTab from "./snow/SnowTab";
 import { normalizeProjects, Project } from "@/lib/projects";
 import { readUrl, writeUrl } from "@/lib/urlState";
 import { ROLES, ROLE_LABEL, Role, applyRole, isRole, roleOf } from "@/lib/roles";
@@ -20,7 +21,7 @@ const seasonLabels: Record<string, string> = {
   summer: "Summer theme",
 };
 
-const baseTabs = ["Home", "Projects", "Graffiti", "Work orders", "Lawn care", "Other jobs", "Food", "About", "Contact"] as const;
+const baseTabs = ["Home", "Projects", "Graffiti", "Work orders", "Lawn care", "Other jobs", "Snow removal", "Food", "About", "Contact"] as const;
 type Tab = (typeof baseTabs)[number] | "Admin";
 
 const mono = "'IBM Plex Mono', monospace";
@@ -89,7 +90,7 @@ type TabContentData = {
   contact: ContactContent;
 };
 
-type EditableTab = "home" | "projects" | "graffiti" | "workorders" | "lawn" | "otherjobs" | "food" | "about" | "contact";
+type EditableTab = "home" | "projects" | "graffiti" | "workorders" | "lawn" | "otherjobs" | "snow" | "food" | "about" | "contact";
 
 // Which nav tab corresponds to each permission key, in display order —
 // used to build the visible tab list for a given identity (real or
@@ -101,6 +102,7 @@ const tabLabelForKey: Record<EditableTab, Tab> = {
   workorders: "Work orders",
   lawn: "Lawn care",
   otherjobs: "Other jobs",
+  snow: "Snow removal",
   food: "Food",
   about: "About",
   contact: "Contact",
@@ -368,7 +370,7 @@ function ContactTab({
   );
 }
 
-const editableTabKeys = ["home", "projects", "graffiti", "workorders", "lawn", "otherjobs", "food", "about", "contact"] as const;
+const editableTabKeys = ["home", "projects", "graffiti", "workorders", "lawn", "otherjobs", "snow", "food", "about", "contact"] as const;
 // What the Admin tab can switch on per user: every tab, plus "invoice" (the invoice + prices for the job tabs that person has).
 const permissionKeys = [...editableTabKeys, "invoice"] as const;
 const permissionLabel: Record<(typeof permissionKeys)[number], string> = {
@@ -378,6 +380,7 @@ const permissionLabel: Record<(typeof permissionKeys)[number], string> = {
   workorders: "work orders",
   lawn: "lawn care",
   otherjobs: "other jobs",
+  snow: "snow removal",
   food: "food",
   about: "about",
   contact: "contact",
@@ -669,6 +672,13 @@ function Icon({ name }: { name: Tab }) {
           <path d="M14.5 6.5a4 4 0 0 0-5 5L4 17l3 3 5.5-5.5a4 4 0 0 0 5-5l-2.5 2.5-2-.5-.5-2z" />
         </svg>
       );
+    case "Snow removal":
+      return (
+        <svg {...common}>
+          <path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9" />
+          <path d="M9.5 4.5 12 7l2.5-2.5M9.5 19.5 12 17l2.5 2.5" />
+        </svg>
+      );
     case "Food":
       return (
         <svg {...common}>
@@ -842,7 +852,7 @@ export default function HomePage() {
     : editableTabKeys.filter((key) => canEdit(key)).map((key) => tabLabelForKey[key]);
   const tabs: Tab[] = isOwner ? [...visibleBaseTabs, "Admin"] : visibleBaseTabs;
 
-  // Crew accounts never see the hub. Someone who has the graffiti tab but none of the real
+  // Crew accounts never see the hub. Someone who has the graffiti (or snow removal) tab but none of the real
   // hub tabs (home/projects/food; About and Contact are just the new-account defaults) goes
   // straight to /crew. Also: /crew leaves a one-time flag when it shows its sign-in, so if the
   // sign-in lands here instead of back on /crew, we send the person back there.
@@ -850,7 +860,7 @@ export default function HomePage() {
   const crewOnly =
     !preview &&
     realMeta.owner !== true &&
-    realMeta.tabAdmin?.graffiti === true &&
+    (realMeta.tabAdmin?.graffiti === true || realMeta.tabAdmin?.snow === true) &&
     // the job tabs live on the main site for now: anyone who has one is not sent to /crew
     !realMeta.tabAdmin?.workorders &&
     !realMeta.tabAdmin?.lawn &&
@@ -873,7 +883,7 @@ export default function HomePage() {
       window.location.replace("/crew");
     }
   }, [isLoaded, user, crewOnly]);
-  const usesContent = active !== "Admin" && active !== "Graffiti" && active !== "Work orders" && active !== "Lawn care" && active !== "Other jobs";
+  const usesContent = active !== "Admin" && active !== "Graffiti" && active !== "Work orders" && active !== "Lawn care" && active !== "Other jobs" && active !== "Snow removal";
 
   // Keep the active tab in sync with what's actually visible: a shared
   // ?tab=admin link does nothing for non-owners (send them Home), and
@@ -1116,6 +1126,7 @@ export default function HomePage() {
           {active === "Work orders" && canEdit("workorders") && <JobsTab key="workorders" jtype="workorders" isOwner={isOwner} />}
           {active === "Lawn care" && canEdit("lawn") && <JobsTab key="lawn" jtype="lawn" isOwner={isOwner} />}
           {active === "Other jobs" && canEdit("otherjobs") && <JobsTab key="otherjobs" jtype="otherjobs" isOwner={isOwner} />}
+          {active === "Snow removal" && canEdit("snow") && <SnowTab isOwner={isOwner} />}
           {content && active === "Food" && canEdit("food") && (
             <FoodTab data={food} editable={canEdit("food")} onSave={(d) => saveTab("food", d)} />
           )}

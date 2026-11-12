@@ -5,15 +5,18 @@ import { SignIn, SignOutButton, UserButton, useUser } from "@clerk/nextjs";
 import AliveBackground from "../AliveBackground";
 import GraffitiTab from "../graffiti/GraffitiTab";
 import JobsTab from "../jobs/JobsTab";
+import SnowTab from "../snow/SnowTab";
 import { JOB_TYPES, JobType, canUseJobType } from "@/lib/jobs";
+import { canUseSnow } from "@/lib/snow";
 import type { PublicMetadata } from "@/lib/supabaseAdmin";
 
-// Crew entry point: sign in here and pick the kind of job (graffiti, work order, lawn care, other), then log it.
+// Crew entry point: sign in here and pick the kind of job (graffiti, work order, lawn care, other, snow removal), then log it.
+// Snow removal is not a log: it shows where the phone is and the plow route PDF for that area.
 // Graffiti is the default and works exactly as before. Showing or hiding is only cosmetic:
 // the real permission checks are in the /api/graffiti and /api/jobs routes (prices are never sent to crew without the invoice switch).
 
-type Kind = "graffiti" | JobType;
-const KIND_LABEL: Record<Kind, string> = { graffiti: "Graffiti", workorders: "Work order", lawn: "Lawn care", otherjobs: "Other job" };
+type Kind = "graffiti" | JobType | "snow";
+const KIND_LABEL: Record<Kind, string> = { graffiti: "Graffiti", workorders: "Work order", lawn: "Lawn care", otherjobs: "Other job", snow: "Snow removal" };
 const KIND_KEY = "crew_kind";
 
 const mono = "'IBM Plex Mono', monospace";
@@ -68,7 +71,7 @@ export default function CrewPage() {
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem(KIND_KEY);
-      if (saved === "graffiti" || (JOB_TYPES as readonly string[]).includes(saved ?? "")) {
+      if (saved === "graffiti" || saved === "snow" || (JOB_TYPES as readonly string[]).includes(saved ?? "")) {
         setKind(saved as Kind);
         setVisited((v) => new Set(v).add(saved as Kind));
       }
@@ -122,7 +125,11 @@ export default function CrewPage() {
   const meta = (user?.publicMetadata ?? {}) as PublicMetadata;
   const isOwner = meta.owner === true;
   const hasGraffiti = isOwner || meta.tabAdmin?.graffiti === true;
-  const kinds: Kind[] = [...(hasGraffiti ? (["graffiti"] as Kind[]) : []), ...JOB_TYPES.filter((t) => canUseJobType(meta, t))];
+  const kinds: Kind[] = [
+    ...(hasGraffiti ? (["graffiti"] as Kind[]) : []),
+    ...JOB_TYPES.filter((t) => canUseJobType(meta, t)),
+    ...(canUseSnow(meta) ? (["snow"] as Kind[]) : []),
+  ];
   const allowed = kinds.length > 0;
   const current: Kind = kinds.includes(kind) ? kind : kinds[0];
 
@@ -134,7 +141,7 @@ export default function CrewPage() {
           <div style={{ maxWidth: 420, width: "100%", textAlign: "center" }}>
             <h1 style={{ fontFamily: mono, fontWeight: 600, fontSize: 24, margin: "0 0 12px" }}>No crew access yet</h1>
             <p style={{ fontFamily: sans, fontSize: 14, lineHeight: 1.6, color: "var(--text-dim)", margin: "0 0 20px" }}>
-              You're signed in, but this account hasn't been given the graffiti tracker. Ask Isaac to turn it on for you.
+              You're signed in, but this account hasn't been given any crew tools yet. Ask Isaac to turn them on for you.
             </p>
             <SignOutButton redirectUrl="/sign-in">
               <button
@@ -225,6 +232,11 @@ export default function CrewPage() {
               <JobsTab jtype={t} isOwner={isOwner} />
             </div>
           ))}
+          {kinds.includes("snow") && (visited.has("snow") || current === "snow") && (
+            <div hidden={current !== "snow"}>
+              <SnowTab isOwner={isOwner} active={current === "snow"} />
+            </div>
+          )}
         </div>
       </main>
     </>
