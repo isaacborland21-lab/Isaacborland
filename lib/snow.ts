@@ -116,7 +116,7 @@ export function cleanStops(v: unknown): Ok<{ stops: SnowStop[] }> | Fail {
 }
 
 /** One piece of text on a PDF page: its size and how far down the page it sits (0 = top). */
-export type PdfTextBit = { str: string; size: number; top: number; left: number };
+export type PdfTextBit = { str: string; size: number; top: number; left: number; width?: number; font?: string };
 
 /**
  * The page's heading: the biggest text in the top half of the page. Starting from the first line at that
@@ -125,6 +125,11 @@ export type PdfTextBit = { str: string; size: number; top: number; left: number 
  * Returns null for pages with no real text (just pictures, or only a page number).
  */
 export function headingFromText(bits: PdfTextBit[], pageHeight: number): string | null {
+  return findHeading(bits, pageHeight)?.title ?? null;
+}
+
+/** The heading plus where its lines sit on the page (so the big view can leave them out of the instructions). */
+export function findHeading(bits: PdfTextBit[], pageHeight: number): { title: string; tops: number[]; font: string | null } | null {
   const words = bits.filter((b) => b.str.trim() && !/^\s*\d{1,3}\s*$/.test(b.str) && b.size > 0 && b.top <= pageHeight * 0.85);
   const top = words.filter((b) => b.top <= pageHeight * 0.5);
   if (top.length === 0) return null;
@@ -142,17 +147,22 @@ export function headingFromText(bits: PdfTextBit[], pageHeight: number): string 
   const first = lines.findIndex((l) => l.top <= pageHeight * 0.5 && l.bits.some(isBig));
   if (first < 0) return null;
   const picked: string[] = [];
+  const tops: number[] = [];
+  let font: string | null = null;
   let prevTop = lines[first].top;
   for (let i = first; i < lines.length; i++) {
     const l = lines[i];
     if (!l.bits.every(isBig) && i > first) break;
     if (i > first && l.top - prevTop > biggest * 2) break;
     picked.push(l.bits.filter(isBig).sort((a, b) => a.left - b.left).map((b) => b.str).join(" "));
+    tops.push(l.top);
+    font = font ?? l.bits.find(isBig)?.font ?? null;
     prevTop = l.top;
     if (picked.length >= 3) break;
   }
   const text = picked.join(" · ").replace(/\s+·\s+(?=\()/g, " ");
-  return cleanStopTitle(text);
+  const title = cleanStopTitle(text);
+  return title ? { title, tops, font } : null;
 }
 
 /** What to type into a map search for a stop: "1902–1908 W. Koch lot" → "1902 W. Koch". */

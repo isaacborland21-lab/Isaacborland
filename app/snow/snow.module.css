@@ -213,19 +213,41 @@
 .spacer { flex: 1; }
 .saved { font-size: 12.5px; color: #3fb06a; font-weight: 600; margin: -2px 0 8px; }
 
-.pages {
+/* the page on screen: big view = instructions as text + full-width pictures; whole page = the PDF page as it is */
+.card { display: grid; gap: 12px; min-width: 0; }
+.cardWait { margin: 0; padding: 28px 16px; text-align: center; color: var(--text-dim); font-size: 14px; }
+.fig {
   background: #fff;
   border: 1px solid var(--surface-border);
   border-radius: 12px;
+  overflow: hidden;
+  max-width: 100%;
+  min-width: 0;
+}
+.figZoomed {
   overflow: auto;
-  max-height: 78vh;
-  max-height: 78dvh;
+  max-height: 80vh;
+  max-height: 80dvh;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
 }
-.pages { position: relative; }
-.slot { margin: 0 auto; background: #fff; }
-.slot + .slot { border-top: 6px solid #d7dbe0; }
+.slot { margin: 0 auto; background: #fff; max-width: none; }
+
+.instr { font-size: 17px; line-height: 1.5; overflow-wrap: anywhere; }
+.instr p { margin: 0 0 0.65em; }
+.instr p:last-child { margin-bottom: 0; }
+.instr b { font-weight: 700; }
+.bullet { display: grid; grid-template-columns: 1.5em minmax(0, 1fr); align-items: start; }
+.instr p.bullet { margin-bottom: 0.4em; }
+.dot { color: var(--text-dim); text-align: center; }
+.swatch {
+  width: 0.95em;
+  height: 0.95em;
+  margin-top: 0.3em;
+  border-radius: 3px;
+  border: 1px solid color-mix(in srgb, var(--text) 45%, transparent);
+}
+.swatchInline { display: inline-block; margin: 0 0.4em 0 0; vertical-align: -0.12em; }
 .slot canvas { display: block; }
 .viewer { scroll-margin-top: 12px; }
 .pager {
@@ -270,7 +292,8 @@
   padding: calc(10px + env(safe-area-inset-top, 0px)) max(10px, env(safe-area-inset-right, 0px)) calc(10px + env(safe-area-inset-bottom, 0px))
     max(10px, env(safe-area-inset-left, 0px));
 }
-.full .pages { flex: 1; max-height: none; min-height: 0; }
+.full .card { flex: 1; min-height: 0; overflow-y: auto; align-content: start; }
+.full .figZoomed { max-height: none; }
 
 /* ---------- owner: manage routes ---------- */
 .manage {

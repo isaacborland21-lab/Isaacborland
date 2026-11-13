@@ -4,12 +4,17 @@ import { useEffect, useRef, useState } from "react";
 import g from "../graffiti/graffiti.module.css";
 import s from "./snow.module.css";
 import { SnowRoute, fmtSize } from "@/lib/snow";
-import { PdfJs, errMsg, getRouteBytes, loadPdfJs } from "./pdf";
+import { Block, Para, Rect } from "@/lib/snowLayout";
+import { PageLayout, PdfJs, analyzePage, errMsg, getRouteBytes, loadPdfJs } from "./pdf";
 
 // The route PDF on screen, one page (one location) at a time: ‹ Prev / Next › (or swipe) to move through
 // the route, the stop's name on top, zoom and full screen for reading the map. Stops and arriving at a
 // property jump straight to its page. Only the page on screen is drawn, which also keeps long
 // aerial-photo PDFs well inside a phone's memory.
+//
+// "Big view" (the default) takes the page apart: the instructions are shown as real text at a readable
+// size and each picture is cut out of the page so it fills the phone's width, instead of a whole letter-size
+// page shrunk onto the screen. "Whole page" shows the page exactly as it is in the PDF.
 
 /** Phones refuse canvases above ~16 million pixels (iPhone Safari) and draw them blank, so stay under it. */
 const MAX_CANVAS_PX = 16_000_000;
@@ -23,6 +28,15 @@ const readPage = (id: string) => {
     return Number.isInteger(n) && n > 0 ? n : 1;
   } catch {
     return 1;
+  }
+};
+type View = "big" | "page";
+const VIEW_KEY = "snow_view";
+const readView = (): View => {
+  try {
+    return window.localStorage.getItem(VIEW_KEY) === "page" ? "page" : "big";
+  } catch {
+    return "big";
   }
 };
 const writePage = (id: string, n: number) => {
@@ -50,6 +64,10 @@ export default function RouteViewer({
   const pageRef = useRef<HTMLDivElement>(null);
   const docRef = useRef<PdfJs>(null);
   const taskRef = useRef<PdfJs>(null);
+  const libRef = useRef<PdfJs>(null);
+  const layouts = useRef(new Map<number, PageLayout>());
+  const [layout, setLayout] = useState<{ page: number; data: PageLayout } | null>(null);
+  const [view, setView] = useState<View>("big");
   const [state, setState] = useState<{ kind: "loading" | "ready" | "error"; msg?: string }>({ kind: "loading" });
   const [sizes, setSizes] = useState<{ w: number; h: number }[] | null>(null);
   const [page, setPage] = useState(() => (jump ? jump.page : readPage(route.id)));
@@ -99,6 +117,8 @@ export default function RouteViewer({
       }
       docRef.current = doc;
       taskRef.current = task;
+      libRef.current = pdfjs;
+      layouts.current.clear();
       setSizes(dims);
       setPage((p) => Math.max(1, Math.min(dims.length, p)));
       setState({ kind: "ready" });
@@ -128,6 +148,17 @@ export default function RouteViewer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jump]);
 
+  useEffect(() => setView(readView()), []);
+  const changeView = (v: View) => {
+    setView(v);
+    setZoom(1);
+    try {
+      window.localStorage.setItem(VIEW_KEY, v);
+    } catch {
+      /* not important */
+    }
+  };
+
   // follow the box width (rotating the phone, full screen, the tab being shown again)
   useEffect(() => {
     const el = pageRef.current;
@@ -145,63 +176,29 @@ export default function RouteViewer({
     };
   }, [state.kind, full]);
 
-  // draw the one page on screen
+  // big view: work out this page's instructions and pictures (once per page)
   useEffect(() => {
     const doc = docRef.current;
-    const el = pageRef.current;
-    if (state.kind !== "ready" || !doc || !el || !sizes || width < 50 || page > sizes.length) return;
+    if (state.kind !== "ready" || !doc || view !== "big" || !sizes || page > sizes.length) return;
+    const have = layouts.current.get(page);
+    if (have) {
+      setLayout({ page, data: have });
+      return;
+    }
     let live = true;
-    const sz = sizes[page - 1];
-    const cssWidth = Math.floor((width - 2) * zoom);
-    const slot = document.createElement("div");
-    slot.className = s.slot;
-    slot.dataset.page = String(page);
-    slot.style.width = `${cssWidth}px`;
-    slot.style.height = `${Math.round((cssWidth * sz.h) / sz.w)}px`;
-    slot.setAttribute("role", "img");
-    slot.setAttribute("aria-label", `${route.name}, page ${page} of ${sizes.length}`);
-    const old = el.firstChild as HTMLElement | null;
-    const keepX = el.scrollWidth > el.clientWidth ? (el.scrollLeft + el.clientWidth / 2) / el.scrollWidth : 0.5;
-    const keepY = el.scrollHeight > el.clientHeight ? (el.scrollTop + el.clientHeight / 2) / el.scrollHeight : 0;
-    const samePage = old?.dataset.page === String(page);
-
-    (async () => {
-      const pg = await doc.getPage(page);
-      const base = pg.getViewport({ scale: 1 });
-      const cssScale = cssWidth / base.width;
-      let px = cssScale * Math.min(window.devicePixelRatio || 1, 3);
-      const area = base.width * base.height * px * px;
-      if (area > MAX_CANVAS_PX) px *= Math.sqrt(MAX_CANVAS_PX / area);
-      const vp = pg.getViewport({ scale: px });
-      const cv = document.createElement("canvas");
-      cv.width = Math.floor(vp.width);
-      cv.height = Math.floor(vp.height);
-      cv.style.width = "100%";
-      cv.style.height = "100%";
-      const ctx = cv.getContext("2d");
-      if (!ctx) return;
-      await pg.render({ canvasContext: ctx, viewport: vp }).promise;
-      if (!live) {
-        cv.width = cv.height = 0;
-        return;
-      }
-      slot.appendChild(cv);
-      const oldCv = old?.querySelector("canvas");
-      if (oldCv) oldCv.width = oldCv.height = 0; // give the phone the memory back
-      el.replaceChildren(slot);
-      if (samePage) {
-        // zooming: stay on the same spot of the map
-        el.scrollLeft = Math.max(0, keepX * el.scrollWidth - el.clientWidth / 2);
-        el.scrollTop = Math.max(0, keepY * el.scrollHeight - el.clientHeight / 2);
-      } else {
-        el.scrollLeft = Math.max(0, (el.scrollWidth - el.clientWidth) / 2);
-        el.scrollTop = 0;
-      }
-    })().catch((e) => live && setState({ kind: "error", msg: `Could not show this page: ${errMsg(e)}` }));
+    void analyzePage(libRef.current, doc, page).then((data) => {
+      layouts.current.set(page, data);
+      if (live) setLayout({ page, data });
+    });
     return () => {
       live = false;
     };
-  }, [state.kind, sizes, width, zoom, page, route.name]);
+  }, [state.kind, sizes, page, view]);
+
+  // a new page starts at its top
+  useEffect(() => {
+    if (pageRef.current) pageRef.current.scrollTop = 0;
+  }, [page, view]);
 
   // swipe left / right to change page (only when not zoomed in, so panning the map still works)
   useEffect(() => {
@@ -251,6 +248,14 @@ export default function RouteViewer({
   const zoomTo = (z: number) => setZoom(Math.max(1, Math.min(5, Math.round(z * 100) / 100)));
   const ready = state.kind === "ready";
 
+  // what to show for this page
+  const size = sizes && page <= sizes.length ? sizes[page - 1] : null;
+  const whole: Block[] = size ? [{ kind: "figure", top: 0, rect: { left: 0, top: 0, right: size.w, bottom: size.h } }] : [];
+  const analysed = layout && layout.page === page ? layout.data : null;
+  const waiting = view === "big" && !analysed;
+  const blocks: Block[] = view === "page" ? whole : analysed ? (analysed.blocks.length ? analysed.blocks : whole) : [];
+  const isBig = view === "big" && !!analysed && analysed.blocks.length > 0;
+
   return (
     <div ref={wrapRef} className={full ? s.full : s.viewer} data-testid="snow-viewer">
       {ready && pageCount > 1 && (
@@ -287,6 +292,9 @@ export default function RouteViewer({
           </button>
         )}
         <span className={s.spacer} />
+        <button type="button" className={`${g.btn} ${g.sec}`} onClick={() => changeView(view === "big" ? "page" : "big")} disabled={!ready} data-testid="snow-view">
+          {view === "big" ? "Whole page" : "Big view"}
+        </button>
         <button type="button" className={`${g.btn} ${g.sec}`} onClick={() => setFull((f) => !f)} disabled={!ready} data-testid="snow-full">
           {full ? "Close" : "Full screen"}
         </button>
@@ -319,7 +327,133 @@ export default function RouteViewer({
           )}
         </div>
       )}
-      <div ref={pageRef} className={s.pages} hidden={!ready} data-testid="snow-pages" />
+      <div ref={pageRef} className={`${s.card} ${isBig ? s.cardBig : s.cardPage}`} hidden={!ready} data-testid="snow-pages" data-view={isBig ? "big" : "page"}>
+        {waiting && <p className={s.cardWait}>Opening page {page}…</p>}
+        {ready &&
+          width >= 50 &&
+          blocks.map((b, i) =>
+            b.kind === "text" ? (
+              <Instructions key={`${page}-t${i}`} paras={b.paras} />
+            ) : (
+              <Figure
+                key={`${page}-f${i}-${view}`}
+                doc={docRef.current}
+                page={page}
+                rect={b.rect}
+                boxWidth={width}
+                zoom={zoom}
+                fill={isBig}
+                label={`${stop ? stop.title : route.name}, page ${page} of ${pageCount}${isBig ? ", picture" : ""}`}
+                onError={(msg) => setState({ kind: "error", msg })}
+              />
+            ),
+          )}
+      </div>
+    </div>
+  );
+}
+
+/** The page's instructions as real text: paragraphs and bullet points, bold where the PDF is bold. */
+function Instructions({ paras }: { paras: Para[] }) {
+  return (
+    <div className={s.instr} data-testid="snow-instr">
+      {paras.map((p, i) => (
+        <p key={i} className={p.bullet ? s.bullet : undefined}>
+          {p.bullet && (p.swatch ? <span className={s.swatch} style={{ background: p.swatch }} aria-hidden="true" /> : <span className={s.dot} aria-hidden="true">•</span>)}
+          <span>
+            {!p.bullet && p.swatch && <span className={`${s.swatch} ${s.swatchInline}`} style={{ background: p.swatch }} aria-hidden="true" />}
+            {p.runs.map((r, j) => (r.bold ? <b key={j}>{r.text}</b> : <span key={j}>{r.text}</span>))}
+          </span>
+        </p>
+      ))}
+    </div>
+  );
+}
+
+/** One piece of the page (a picture, or the whole page) drawn to fill the width; scrolls inside its box when zoomed. */
+function Figure({
+  doc,
+  page,
+  rect,
+  boxWidth,
+  zoom,
+  fill,
+  label,
+  onError,
+}: {
+  doc: PdfJs;
+  page: number;
+  rect: Rect;
+  boxWidth: number;
+  zoom: number;
+  fill: boolean;
+  label: string;
+  onError: (msg: string) => void;
+}) {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const slotRef = useRef<HTMLDivElement>(null);
+  const errRef = useRef(onError);
+  errRef.current = onError;
+  const w = Math.max(1, rect.right - rect.left);
+  const h = Math.max(1, rect.bottom - rect.top);
+  // fill the width, but don't blow a small picture up into a blur
+  const fit = fill ? Math.min(boxWidth, Math.round(w * 2.6)) : boxWidth - 2;
+  const cssWidth = Math.max(1, Math.floor(fit * zoom));
+  const cssHeight = Math.round((cssWidth * h) / w);
+
+  useEffect(() => {
+    const box = boxRef.current;
+    const slot = slotRef.current;
+    if (!doc || !box || !slot) return;
+    let live = true;
+    const hadCanvas = !!slot.firstChild;
+    const keepX = box.scrollWidth > box.clientWidth ? (box.scrollLeft + box.clientWidth / 2) / box.scrollWidth : 0.5;
+    const keepY = box.scrollHeight > box.clientHeight ? (box.scrollTop + box.clientHeight / 2) / box.scrollHeight : 0.5;
+    (async () => {
+      const pg = await doc.getPage(page);
+      let px = (cssWidth / w) * Math.min(window.devicePixelRatio || 1, 3);
+      const area = w * h * px * px;
+      if (area > MAX_CANVAS_PX) px *= Math.sqrt(MAX_CANVAS_PX / area);
+      const vp = pg.getViewport({ scale: px, offsetX: -rect.left * px, offsetY: -rect.top * px });
+      const cv = document.createElement("canvas");
+      cv.width = Math.max(1, Math.floor(w * px));
+      cv.height = Math.max(1, Math.floor(h * px));
+      cv.style.width = "100%";
+      cv.style.height = "100%";
+      const ctx = cv.getContext("2d");
+      if (!ctx) return;
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, cv.width, cv.height);
+      await pg.render({ canvasContext: ctx, viewport: vp }).promise;
+      if (!live) {
+        cv.width = cv.height = 0;
+        return;
+      }
+      const old = slot.querySelector("canvas");
+      if (old) old.width = old.height = 0; // give the phone the memory back
+      slot.replaceChildren(cv);
+      if (hadCanvas) {
+        // zooming: stay on the same spot of the map
+        box.scrollLeft = Math.max(0, keepX * box.scrollWidth - box.clientWidth / 2);
+        box.scrollTop = Math.max(0, keepY * box.scrollHeight - box.clientHeight / 2);
+      }
+    })().catch((e) => live && errRef.current(`Could not show this page: ${errMsg(e)}`));
+    return () => {
+      live = false;
+    };
+  }, [doc, page, rect.left, rect.top, w, h, cssWidth]);
+
+  useEffect(() => {
+    const slot = slotRef.current;
+    return () => {
+      const cv = slot?.querySelector("canvas");
+      if (cv) cv.width = cv.height = 0;
+    };
+  }, []);
+
+  return (
+    <div ref={boxRef} className={`${s.fig} ${zoom > 1 ? s.figZoomed : ""}`} data-testid="snow-fig">
+      <div ref={slotRef} className={s.slot} style={{ width: cssWidth, height: cssHeight }} role="img" aria-label={label} />
     </div>
   );
 }
