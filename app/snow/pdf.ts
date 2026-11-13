@@ -5,6 +5,7 @@
 
 import { apiJson } from "../graffiti/clientUtil";
 import { PdfTextBit, SnowStop, headingFromText } from "@/lib/snow";
+import { Block, InkMask, Rect, layoutPage } from "@/lib/snowLayout";
 
 export const errMsg = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong.");
 
@@ -160,4 +161,102 @@ export async function findPlace(q: string, near: { lat: number; lng: number }): 
     }
   }
   return null;
+}
+
+// ---------- the "big view": split a page into instruction text and pictures ----------
+
+type Matrix = [number, number, number, number, number, number];
+const mul = (a: Matrix, b: number[]): Matrix => [
+  a[0] * b[0] + a[2] * b[1],
+  a[1] * b[0] + a[3] * b[1],
+  a[0] * b[2] + a[2] * b[3],
+  a[1] * b[2] + a[3] * b[3],
+  a[0] * b[4] + a[2] * b[5] + a[4],
+  a[1] * b[4] + a[3] * b[5] + a[5],
+];
+
+/** Where each picture sits on the page (points from the top-left), read from the page's drawing commands. */
+async function pictureRects(pdfjs: PdfJs, page: PdfJs, vp: PdfJs): Promise<Rect[]> {
+  const OPS = pdfjs.OPS;
+  if (!OPS) return [];
+  const ops = await page.getOperatorList();
+  const paint = new Set([OPS.paintImageXObject, OPS.paintInlineImageXObject, OPS.paintImageMaskXObject, OPS.paintJpegXObject].filter((v) => v !== undefined));
+  let ctm: Matrix = [1, 0, 0, 1, 0, 0];
+  const stack: Matrix[] = [];
+  const out: Rect[] = [];
+  for (let i = 0; i < ops.fnArray.length; i++) {
+    const fn = ops.fnArray[i];
+    const args = ops.argsArray[i];
+    if (fn === OPS.save) stack.push(ctm);
+    else if (fn === OPS.restore) ctm = stack.pop() ?? ctm;
+    else if (fn === OPS.transform && args?.length >= 6) ctm = mul(ctm, args);
+    else if (fn === OPS.paintFormXObjectBegin) {
+      stack.push(ctm);
+      if (Array.isArray(args?.[0]) && args[0].length >= 6) ctm = mul(ctm, args[0]);
+    } else if (fn === OPS.paintFormXObjectEnd) ctm = stack.pop() ?? ctm;
+    else if (paint.has(fn)) {
+      const m = ctm;
+      const pts = [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+        [1, 1],
+      ].map(([x, y]) => vp.convertToViewportPoint(m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]) as [number, number]);
+      const xs = pts.map((p) => p[0]);
+      const ys = pts.map((p) => p[1]);
+      out.push({ left: Math.min(...xs), right: Math.max(...xs), top: Math.min(...ys), bottom: Math.max(...ys) });
+    }
+  }
+  return out;
+}
+
+/** A small black-and-white copy of the page: which spots have anything drawn on them. */
+async function inkMask(page: PdfJs): Promise<InkMask | null> {
+  const scale = 0.5;
+  const vp = page.getViewport({ scale });
+  const cv = document.createElement("canvas");
+  cv.width = Math.max(1, Math.floor(vp.width));
+  cv.height = Math.max(1, Math.floor(vp.height));
+  const ctx = cv.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+  try {
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    const px = ctx.getImageData(0, 0, cv.width, cv.height).data;
+    const data = new Uint8Array(cv.width * cv.height);
+    for (let i = 0, j = 0; j < data.length; i += 4, j++) {
+      if (px[i + 3] > 20 && (px[i] < 236 || px[i + 1] < 236 || px[i + 2] < 236)) data[j] = 1;
+    }
+    return { w: cv.width, h: cv.height, scale, data };
+  } catch {
+    return null;
+  } finally {
+    cv.width = cv.height = 0;
+  }
+}
+
+export type PageLayout = { width: number; height: number; blocks: Block[] };
+
+/**
+ * Works out the big view of one page. Never throws: if anything about the page can't be read, the result has
+ * no blocks and the viewer shows the whole page as it is.
+ */
+export async function analyzePage(pdfjs: PdfJs, doc: PdfJs, n: number): Promise<PageLayout> {
+  const page = await doc.getPage(n);
+  const vp = page.getViewport({ scale: 1 });
+  try {
+    const tc = await page.getTextContent();
+    const bits: PdfTextBit[] = (tc.items as any[])
+      .filter((i) => typeof i?.str === "string" && Array.isArray(i.transform))
+      .map((i) => {
+        const [left, top] = vp.convertToViewportPoint(i.transform[4], i.transform[5]) as [number, number];
+        return { str: i.str, size: Math.hypot(i.transform[2], i.transform[3]), top, left, width: typeof i.width === "number" ? i.width : undefined, font: i.fontName };
+      });
+    const images = await pictureRects(pdfjs, page, vp).catch(() => [] as Rect[]);
+    const ink = await inkMask(page);
+    return { width: vp.width, height: vp.height, blocks: layoutPage({ width: vp.width, height: vp.height, bits, images, ink }) };
+  } catch {
+    return { width: vp.width, height: vp.height, blocks: [] };
+  }
 }
