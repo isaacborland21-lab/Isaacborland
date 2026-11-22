@@ -8,6 +8,7 @@ import ProjectsTab from "./ProjectsTab";
 import GraffitiTab from "./graffiti/GraffitiTab";
 import JobsTab from "./jobs/JobsTab";
 import SnowTab from "./snow/SnowTab";
+import PokerTab, { PokerContent, normalizePoker } from "./poker/PokerTab";
 import { normalizeProjects, Project } from "@/lib/projects";
 import { readUrl, writeUrl } from "@/lib/urlState";
 import { ROLES, ROLE_LABEL, Role, applyRole, isRole, roleOf } from "@/lib/roles";
@@ -21,7 +22,7 @@ const seasonLabels: Record<string, string> = {
   summer: "Summer theme",
 };
 
-const baseTabs = ["Home", "Projects", "Graffiti", "Work orders", "Lawn care", "Other jobs", "Snow removal", "Food", "About", "Contact"] as const;
+const baseTabs = ["Home", "Projects", "Graffiti", "Work orders", "Lawn care", "Other jobs", "Snow removal", "Food", "Poker", "About", "Contact"] as const;
 type Tab = (typeof baseTabs)[number] | "Admin";
 
 const mono = "'IBM Plex Mono', monospace";
@@ -86,11 +87,12 @@ type TabContentData = {
   home: HomeContent;
   projects: Project[];
   food: FoodContent;
+  poker?: PokerContent;
   about: AboutContent;
   contact: ContactContent;
 };
 
-type EditableTab = "home" | "projects" | "graffiti" | "workorders" | "lawn" | "otherjobs" | "snow" | "food" | "about" | "contact";
+type EditableTab = "home" | "projects" | "graffiti" | "workorders" | "lawn" | "otherjobs" | "snow" | "food" | "poker" | "about" | "contact";
 
 // Which nav tab corresponds to each permission key, in display order —
 // used to build the visible tab list for a given identity (real or
@@ -104,6 +106,7 @@ const tabLabelForKey: Record<EditableTab, Tab> = {
   otherjobs: "Other jobs",
   snow: "Snow removal",
   food: "Food",
+  poker: "Poker",
   about: "About",
   contact: "Contact",
 };
@@ -370,7 +373,7 @@ function ContactTab({
   );
 }
 
-const editableTabKeys = ["home", "projects", "graffiti", "workorders", "lawn", "otherjobs", "snow", "food", "about", "contact"] as const;
+const editableTabKeys = ["home", "projects", "graffiti", "workorders", "lawn", "otherjobs", "snow", "food", "poker", "about", "contact"] as const;
 // What the Admin tab can switch on per user: every tab, plus "invoice" (the invoice + prices for the job tabs that person has).
 const permissionKeys = [...editableTabKeys, "invoice"] as const;
 const permissionLabel: Record<(typeof permissionKeys)[number], string> = {
@@ -382,6 +385,7 @@ const permissionLabel: Record<(typeof permissionKeys)[number], string> = {
   otherjobs: "other jobs",
   snow: "snow removal",
   food: "food",
+  poker: "poker night",
   about: "about",
   contact: "contact",
   invoice: "invoice (prices)",
@@ -687,6 +691,14 @@ function Icon({ name }: { name: Tab }) {
           <path d="M16.5 21V3c-2.2 1.3-3.5 4-3.5 7.5 0 1.9 1 3 3.5 3" />
         </svg>
       );
+    case "Poker":
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="8.5" />
+          <circle cx="12" cy="12" r="4.5" />
+          <path d="M12 3.5v3M12 17.5v3M3.5 12h3M17.5 12h3M6 6l2.1 2.1M15.9 15.9 18 18M18 6l-2.1 2.1M8.1 15.9 6 18" />
+        </svg>
+      );
     case "About":
       return (
         <svg {...common}>
@@ -867,7 +879,8 @@ export default function HomePage() {
     !realMeta.tabAdmin?.otherjobs &&
     !realMeta.tabAdmin?.home &&
     !realMeta.tabAdmin?.projects &&
-    !realMeta.tabAdmin?.food;
+    !realMeta.tabAdmin?.food &&
+    !realMeta.tabAdmin?.poker;
   const [crewRedirect, setCrewRedirect] = useState(false);
   useEffect(() => {
     if (!isLoaded || !user) return;
@@ -1129,6 +1142,9 @@ export default function HomePage() {
           {active === "Snow removal" && canEdit("snow") && <SnowTab isOwner={isOwner} />}
           {content && active === "Food" && canEdit("food") && (
             <FoodTab data={food} editable={canEdit("food")} onSave={(d) => saveTab("food", d)} />
+          )}
+          {content && active === "Poker" && canEdit("poker") && (
+            <PokerTab data={normalizePoker(content.poker)} onSave={(d) => saveTab("poker", d)} />
           )}
           {content && active === "About" && canEdit("about") && (
             <AboutTab data={content.about} editable={canEdit("about")} onSave={(d) => saveTab("about", d)} />
