@@ -23,8 +23,8 @@ export const DEFAULT_CHIPS: ChipSetup = {
   colors: [
     { name: "White", color: "#f2efe6", value: 25, owned: 0 },
     { name: "Red", color: "#c8372d", value: 50, owned: 0 },
-    { name: "Blue", color: "#2f5fc4", value: 100, owned: 0 },
-    { name: "Green", color: "#2f9a52", value: 200, owned: 0 },
+    { name: "Green", color: "#2f9a52", value: 100, owned: 0 },
+    { name: "Blue", color: "#2f5fc4", value: 200, owned: 0 },
     { name: "Black", color: "#1b1b1b", value: 500, owned: 0 },
   ],
 };
