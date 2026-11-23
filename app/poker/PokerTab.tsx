@@ -18,14 +18,14 @@ export type ChipSetup = { buyIn: number; seats: number; colors: ChipColor[] };
 export type PokerContent = { players: PokerPlayer[]; sessions: PokerSession[]; chips: ChipSetup };
 
 export const DEFAULT_CHIPS: ChipSetup = {
-  buyIn: 2000,
+  buyIn: 500,
   seats: 6,
   colors: [
-    { name: "White", color: "#f2efe6", value: 25, owned: 0 },
-    { name: "Red", color: "#c8372d", value: 50, owned: 0 },
-    { name: "Green", color: "#2f9a52", value: 100, owned: 0 },
-    { name: "Blue", color: "#2f5fc4", value: 200, owned: 0 },
-    { name: "Black", color: "#1b1b1b", value: 500, owned: 0 },
+    { name: "White", color: "#f2efe6", value: 5, owned: 0 },
+    { name: "Red", color: "#c8372d", value: 10, owned: 0 },
+    { name: "Green", color: "#2f9a52", value: 25, owned: 0 },
+    { name: "Blue", color: "#2f5fc4", value: 50, owned: 0 },
+    { name: "Black", color: "#1b1b1b", value: 100, owned: 0 },
   ],
 };
 
@@ -709,9 +709,13 @@ function ChipCalculator({ data, save }: { data: PokerContent; save: (next: Poker
 
   const setColor = (i: number, patch: Partial<ColorDraft>) => setColors((cs) => cs.map((c, j) => (j === i ? { ...c, ...patch } : c)));
 
-  function suggest() {
-    if (!buyIn) return;
-    const ladder = suggestValues(buyIn);
+  // Changing the buy-in re-prices the chips to a ladder that fits it (white stays smallest, black biggest).
+  // Values can still be edited by hand afterwards.
+  function changeBuyIn(next: string) {
+    setBuyInStr(next);
+    const cents = parseMoney(next);
+    if (!cents) return;
+    const ladder = suggestValues(cents);
     setColors((cs) => cs.map((c, i) => ({ ...c, value: toInput(ladder[i]) })));
   }
 
@@ -732,20 +736,19 @@ function ChipCalculator({ data, save }: { data: PokerContent; save: (next: Poker
     <Card>
       <h2 style={{ fontFamily: mono, fontSize: 22, margin: "0 0 6px 0" }}>Chip calculator</h2>
       <p style={{ ...dim, marginBottom: 16 }}>
-        Set the buy-in and how many people are playing. Set the chip values yourself or hit <strong>Suggest values</strong>, and it works out how
-        many of each color to hand every player.
+        Set the buy-in and how many people are playing. Chip values adjust to the buy-in automatically (you can still tweak them), and it
+        works out how many of each color to hand every player.
       </p>
 
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 18 }}>
         <div style={{ width: 140 }}>
           <p style={label}>Buy-in per player $</p>
-          <input value={buyInStr} inputMode="decimal" onChange={(e) => setBuyInStr(e.target.value)} style={{ ...moneyInput, borderColor: buyIn === null ? "#e88" : undefined }} />
+          <input value={buyInStr} inputMode="decimal" onChange={(e) => changeBuyIn(e.target.value)} style={{ ...moneyInput, borderColor: buyIn === null ? "#e88" : undefined }} />
         </div>
         <div style={{ width: 100 }}>
           <p style={label}>Players</p>
           <input value={seatsStr} inputMode="numeric" onChange={(e) => setSeatsStr(e.target.value.replace(/\D/g, ""))} style={moneyInput} />
         </div>
-        <button style={ghostBtn} onClick={suggest} disabled={!buyIn}>Suggest values</button>
         {data.players.length > 0 && (
           <button style={ghostBtn} onClick={() => setSeatsStr(String(data.players.length))}>
             Use roster ({data.players.length})
