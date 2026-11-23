@@ -10,7 +10,7 @@ import { LeafletNS, TILE_ATTRIBUTION, TILE_URL, apiJson, loadLeaflet } from "../
 // Owner, or a Manager (graffiti tab + invoice switch). How many tags we are finding, where, what kind, and what keeps
 // coming back. Counts are when a crew FOUND and logged a tag, not when the graffiti went up (see "How to read this").
 
-type Resp = { generated: string; tz: string; trends: Trends };
+type Resp = { generated: string; tz: string; canImport?: boolean; trends: Trends };
 type RangeKey = "7" | "30" | "90" | "365" | "all" | "custom";
 
 const RANGES: { key: RangeKey; label: string }[] = [
@@ -237,6 +237,11 @@ export default function TrendsPage() {
           <a className={`${styles.btn} ${styles.sec}`} href="/?tab=graffiti" data-testid="back-link">
             ← Back to tracker
           </a>
+          {data?.canImport && (
+            <a className={`${styles.btn} ${styles.sec}`} href="/graffiti/trends/import" data-testid="import-link" style={{ marginLeft: 8 }}>
+              Import old invoices →
+            </a>
+          )}
         </div>
         <h1 className={t.h1}>Trends: how many tags we&apos;re finding, and where</h1>
         <p className={t.lead}>
@@ -307,6 +312,15 @@ export default function TrendsPage() {
               <p className={t.note} style={{ marginTop: 0 }}>
                 {shortDay(tr.range.from)} to {shortDay(tr.range.to)} · {plural(tr.range.days, "day")}
               </p>
+              {tr.totals.imported > 0 && (
+                <p className={t.note} data-testid="imported-note">
+                  {plural(tr.totals.imported, "tag")} here came from imported old invoices
+                  {tr.totals.unplaced > 0
+                    ? `; ${plural(tr.totals.unplaced, "tag")} ${tr.totals.unplaced === 1 ? "has" : "have"} no map position, so ${tr.totals.unplaced === 1 ? "it is" : "they are"} counted everywhere except the map and the busiest blocks`
+                    : ""}
+                  .
+                </p>
+              )}
               <ul className={t.insights}>
                 {tr.insights.map((i, k) => (
                   <li key={k} data-level={i.level}>
@@ -533,6 +547,7 @@ export default function TrendsPage() {
               <ul style={{ margin: "6px 0 0 18px", padding: 0, fontSize: 13.5 }}>
                 <li>The date is when a crew found and logged the tag. It is not when the graffiti went up, so a busy day often means a sweep, not a spike in vandalism.</li>
                 <li>More time spent driving an area finds more tags there, so a busy street can partly mean it gets checked the most.</li>
+                <li>Tags imported from old invoices only know the day and the intersection written on the invoice. They are in every count, but they are never used to call a spot &quot;tagged again&quot;, and an intersection&apos;s map position is approximate.</li>
                 <li>Trends need time. A few weeks of data can show where tags are, but not seasons or long-term change.</li>
                 <li>Surface names are typed by hand, so similar ones (bus stop, bus shelter) are combined here. Anything unusual is listed as typed.</li>
               </ul>

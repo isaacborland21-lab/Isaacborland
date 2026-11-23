@@ -10,8 +10,9 @@ import { cellBounds, cellCenter, cellKey, meters } from "@/lib/patrol";
 
 export type TrendRow = {
   id: number;
-  lat: number;
-  lng: number;
+  /** Null for a tag imported from an old invoice that could not be placed on the map. */
+  lat: number | null;
+  lng: number | null;
   city: string | null;
   address: string | null;
   gtype: string;
@@ -25,6 +26,8 @@ export type TrendRow = {
   urgent: boolean | null;
   /** Who handled it: finished by, else took it, else reported it. */
   who: string | null;
+  /** "history" = imported from an old invoice. Counted everywhere, but it may have no map position and it never counts toward "repeat spots". */
+  src?: "history";
 };
 
 export type TrendOptions = {
@@ -57,6 +60,10 @@ export type Trends = {
     minutes: number;
     avgMin: number | null;
     medianMin: number | null;
+    /** How many of the counted tags came from imported old invoices. */
+    imported: number;
+    /** How many counted tags have no map position (so they are not on the map or in the blocks). */
+    unplaced: number;
   };
   compare: { available: boolean; prevTags: number; deltaPct: number | null };
   series: { unit: "day" | "week" | "month"; points: { key: string; label: string; n: number }[] };
@@ -178,7 +185,12 @@ const SUFFIXES: Record<string, string> = {
   trl: "Trail",
 };
 
-export type Addr = { num: number | null; full: string; base: string };
+export type Addr = { num: number | null; full: string; base: string; /** the street's own name, lower case, without direction or suffix */ stem: string; hasSuffix: boolean };
+
+const SUFFIX_FULL = new Set(Object.values(SUFFIXES));
+const DIR_FULL = ["North", "South", "East", "West"];
+/** Capitalizes a street word; ALL-CAPS or all-lower-case words (common on typed invoices) become Title Case. */
+const cap = (w: string) => (w === w.toUpperCase() && w.length > 2 ? w.charAt(0) + w.slice(1).toLowerCase() : w.charAt(0).toUpperCase() + w.slice(1));
 
 /**
  * Splits an address into house number, street, and the street without its direction ("East Main Street" and
@@ -194,14 +206,17 @@ export function parseAddress(raw: string | null | undefined): Addr | null {
     num = Number(m[1]);
     t = m[2];
   }
-  const words = t.replace(/\./g, "").split(" ").filter(Boolean);
+  const words = t.replace(/\./g, "").split(" ").filter(Boolean).map(cap);
   if (words.length === 0) return null;
   if (words.length > 1 && DIRS[words[0].toLowerCase()]) words[0] = DIRS[words[0].toLowerCase()];
   const last = words.length - 1;
   if (last > 0 && SUFFIXES[words[last].toLowerCase()]) words[last] = SUFFIXES[words[last].toLowerCase()];
-  const full = words.map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-  const base = words.length >= 3 && ["North", "South", "East", "West"].includes(words[0]) ? words.slice(1).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ") : full;
-  return { num, full, base };
+  const full = words.join(" ");
+  const hasSuffix = words.length > 1 && SUFFIX_FULL.has(words[words.length - 1]);
+  // "East Main Street" and "West Main Street" are one street; so are "East Main" and "North Rouse" on a typed invoice
+  const stripDir = words.length >= 2 && DIR_FULL.includes(words[0]) && (words.length >= 3 || !hasSuffix);
+  const baseWords = stripDir ? words.slice(1) : words;
+  return { num, full, base: baseWords.join(" "), stem: (hasSuffix ? baseWords.slice(0, -1) : baseWords).join(" ").toLowerCase(), hasSuffix };
 }
 
 /** The first and last local day of "the last N days, including today". */
@@ -212,13 +227,15 @@ export function lastDaysRange(nowMs: number, tz: string, n: number): { from: str
 
 // ---------- The report ----------
 
+const hasXY = (r: TrendRow) => r.lat !== null && r.lng !== null && Number.isFinite(Number(r.lat)) && Number.isFinite(Number(r.lng));
+
 export function computeTrends(all: TrendRow[], opts: TrendOptions): Trends {
   const { tz, nowMs } = opts;
   const today = localDate(new Date(nowMs).toISOString(), tz);
-  const city = (r: TrendRow): City => cityOf({ city: r.city, lat: Number(r.lat), lng: Number(r.lng) });
+  const city = (r: TrendRow): City => (hasXY(r) ? cityOf({ city: r.city, lat: Number(r.lat), lng: Number(r.lng) }) : isCity(r.city) ? r.city : "bozeman");
   const day = (iso: string) => localDate(iso, tz);
 
-  const valid = all.filter((r) => Number.isFinite(Number(r.lat)) && Number.isFinite(Number(r.lng)) && !Number.isNaN(Date.parse(r.reported_at)));
+  const valid = all.filter((r) => (r.src === "history" || hasXY(r)) && !Number.isNaN(Date.parse(r.reported_at)));
   // the city filter shapes the whole picture; the type filter only narrows what is counted
   const inCity = valid.filter((r) => opts.city === "all" || city(r) === opts.city).sort((a, b) => Date.parse(a.reported_at) - Date.parse(b.reported_at) || a.id - b.id);
   const typeOk = (r: TrendRow) => opts.type === "all" || typeKey(r.gtype) === opts.type;
@@ -250,6 +267,8 @@ export function computeTrends(all: TrendRow[], opts: TrendOptions): Trends {
     minutes,
     avgMin: mins.length ? round1(minutes / mins.length) : null,
     medianMin: median(mins),
+    imported: rows.filter((r) => r.src === "history").length,
+    unplaced: rows.filter((r) => !hasXY(r)).length,
   };
 
   // ----- compared with the period just before (only when there is real history that far back)
@@ -301,7 +320,22 @@ export function computeTrends(all: TrendRow[], opts: TrendOptions): Trends {
 
   // ----- where: streets, blocks, map points
   type Located = { r: TrendRow; a: Addr | null; c: City };
-  const located: Located[] = rows.map((r) => ({ r, a: parseAddress(r.address), c: city(r) }));
+  // An old invoice says "Main"; the tracker says "East Main Street". When the tracker knows exactly one street with that
+  // name ("Main" -> "Main Street"), the invoice's street is counted with it. With two ("Main Street" and "Main Avenue") it is left alone.
+  const suffixOf = new Map<string, Set<string>>();
+  for (const r of valid) {
+    const a = parseAddress(r.address);
+    if (a?.hasSuffix) suffixOf.set(a.stem, (suffixOf.get(a.stem) ?? new Set<string>()).add(a.base));
+  }
+  const withSuffix = (a: Addr | null): Addr | null => {
+    if (!a || a.hasSuffix) return a;
+    const known = suffixOf.get(a.stem);
+    if (!known || known.size !== 1) return a;
+    const [base] = [...known];
+    const word = base.split(" ").pop() as string;
+    return { ...a, base, full: `${a.full} ${word}`, hasSuffix: true };
+  };
+  const located: Located[] = rows.map((r) => ({ r, a: withSuffix(parseAddress(r.address)), c: city(r) }));
 
   const streetMap = new Map<string, { label: string; c: City; list: Located[] }>();
   for (const x of located) {
@@ -326,6 +360,7 @@ export function computeTrends(all: TrendRow[], opts: TrendOptions): Trends {
 
   const cellMap = new Map<string, Located[]>();
   for (const x of located) {
+    if (!hasXY(x.r)) continue;
     const k = cellKey(Number(x.r.lat), Number(x.r.lng));
     const l = cellMap.get(k);
     if (l) l.push(x);
@@ -361,7 +396,7 @@ export function computeTrends(all: TrendRow[], opts: TrendOptions): Trends {
     if (k > 1) b.label = `${b.label} (area ${k})`;
   }
 
-  const mapPoints: MapPoint[] = rows.map((r) => ({ id: r.id, lat: Number(r.lat), lng: Number(r.lng), c: city(r), t: typeKey(r.gtype), d: day(r.reported_at), a: r.address ? r.address.slice(0, 60) : null }));
+  const mapPoints: MapPoint[] = rows.filter(hasXY).map((r) => ({ id: r.id, lat: Number(r.lat), lng: Number(r.lng), c: city(r), t: typeKey(r.gtype), d: day(r.reported_at), a: r.address ? r.address.slice(0, 60) : null }));
 
   // ----- repeats: spots we cleaned that were tagged again at least a day later
   // Tags within REPEAT_RADIUS_M of a spot's first tag belong to that spot (anchored, so a row of poles never chains together).
@@ -373,6 +408,7 @@ export function computeTrends(all: TrendRow[], opts: TrendOptions): Trends {
   const gk = (r: number, c: number) => `${r}:${c}`;
   const siteOf = new Map<number, Site>();
   for (const r of inCity) {
+    if (r.src === "history" || !hasXY(r)) continue; // an old invoice only knows the intersection: too rough to call a spot "tagged again"
     const lat = Number(r.lat);
     const lng = Number(r.lng);
     const gr = Math.floor(lat / GLAT);
@@ -483,7 +519,25 @@ export function computeTrends(all: TrendRow[], opts: TrendOptions): Trends {
     if (historyDays < 60) {
       insights.push({
         level: "warn",
-        text: `The tracker only has ${plural(historyDays, "day")} of history${firstEver ? ` (since ${fmtDay(firstEver)})` : ""}. Treat everything here as an early read, not a proven pattern. It gets much more reliable after a few months, and especially after a full year with the seasons.`,
+        text: `The data only goes back ${plural(historyDays, "day")}${firstEver ? ` (to ${fmtDay(firstEver)})` : ""}. Treat everything here as an early read, not a proven pattern. It gets much more reliable after a few months, and especially after a full year with the seasons.`,
+      });
+    }
+    // A long stretch with no tags at all usually means invoices that were never imported, not a quiet spell: say so,
+    // because a gap drags every per-day average down and draws an empty stretch in the chart.
+    const dayList = [...new Set(rows.map((r) => day(r.reported_at)))].sort();
+    let gapDays = 0;
+    let gapFrom = "";
+    for (let i = 1; i < dayList.length; i++) {
+      const g = diffDays(dayList[i - 1], dayList[i]) - 1;
+      if (g > gapDays) {
+        gapDays = g;
+        gapFrom = addDays(dayList[i - 1], 1);
+      }
+    }
+    if (gapDays >= 14) {
+      insights.push({
+        level: "warn",
+        text: `No tags are recorded from ${fmtDay(gapFrom)} to ${fmtDay(addDays(gapFrom, gapDays - 1))} (${plural(gapDays, "day")} in a row). If that is a stretch of invoices that has not been imported, the per-day average and the chart understate those weeks. Pick a time period that avoids the gap, or import the missing invoices.`,
       });
     }
     let vol = `${plural(n, "tag")} found over ${plural(days, "day")} (${totals.perDay} a day).`;

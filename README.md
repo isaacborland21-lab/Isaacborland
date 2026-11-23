@@ -68,7 +68,35 @@ what kind, for any time period, city or tag type: plain-English "what stands out
 streets and busiest ~300 m blocks, a map (every tag, or hot blocks), tag types and surfaces, spots that were cleaned and
 tagged again, tags still open, and who handled them. The math is `lib/graffitiTrends.ts` (pure, no database); the data
 comes from `GET /api/graffiti/trends`. Counts are when a crew **found and logged** a tag, not when the graffiti went up,
-and every finding has a minimum sample size so a few tags can't fake a pattern. No database change.
+and every finding has a minimum sample size so a few tags can't fake a pattern. A long stretch with no tags at all
+(14+ days) gets a warning, because it usually means invoices that were never imported.
+
+### Importing old invoices (owner only)
+
+**Trends → Import old invoices →** (`/graffiti/trends/import`). Brings tags from invoices made before the tracker into
+Trends, so it can look back further. Choose the city, pick one or many files, look the rows over, optionally find map
+positions, then import.
+
+- **What it reads:** an invoice `.xlsx` with an **Instance Reporting** sheet (a header row with Date, Street Intersection,
+  Surface, Graffiti type, Time arrived / left, Chemical, Notes; headers are matched loosely), or a `.csv` with at least Date
+  and Street Intersection. The invoice's money lines have no per-tag date, so an invoice without the tag list can't be
+  imported. PDFs and old `.xls` can't be read. Tag types are matched by words (slap/sticker, chalk/sharpie/marker/pen,
+  spray/paint, flyer/poster; anything else is "Other" and keeps its words). Minutes on the job come from arrival/left; invoices
+  often drop AM/PM, so a negative gap is read as crossing 12 o'clock and anything over 10 hours is left blank.
+- **Where it goes:** the separate `graffiti_history` table (migration at the bottom of `supabase/graffiti.sql`), used **only**
+  by Trends. It never touches the live tracker, invoices, patrol or coverage. Each import is one batch with an **Undo this
+  import** button. Re-importing the same file is harmless (a per-row duplicate key). Rows on days the live tracker already
+  has tags for that city are left unticked by default so the same tag isn't counted twice.
+- **Map positions (optional):** the browser asks OpenStreetMap (Overpass) for the point where the two streets of an
+  intersection meet, about one question a second, and shows a link to check each. If the streets cross in more than one place
+  the row is left without a position rather than guessed; a typo can be fixed in the Place box first. Found positions are
+  reused for the same intersection in later imports. Without a position a tag still counts everywhere except the map and the
+  busiest blocks.
+- **How Trends treats imported tags:** counted in every total, chart, type, surface, chemical and street breakdown. A street
+  written without a suffix ("Main") is counted with the tracker's street when only one street has that name ("Main Street").
+  Imported tags are never used for the "tagged again" repeat spots (an intersection is too rough). Their crew shows as
+  "Old invoices (crew not recorded)".
+- **If the table isn't set up yet,** Trends keeps working with the live tags; only the import page reports an error.
 
 ## Patrolling and coverage (graffiti)
 

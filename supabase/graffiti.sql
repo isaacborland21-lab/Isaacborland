@@ -151,3 +151,32 @@ alter table public.graffiti_incidents drop constraint if exists graffiti_inciden
 alter table public.graffiti_incidents
   add constraint graffiti_incidents_gtype_check
   check (gtype in ('slap', 'chalk', 'sharpie', 'spray', 'flyer', 'other', 'ssr', 'powerwash'));
+
+-- Imported history: tags from OLD invoices (before the tracker existed), used ONLY by the Trends page.
+-- Kept apart from graffiti_incidents on purpose, so imported rows never touch the tracker list, invoices, patrol or coverage.
+-- lat/lng are optional (an old invoice only has an intersection). dedupe_key makes re-importing the same file harmless.
+create table if not exists public.graffiti_history (
+  id            bigint generated always as identity primary key,
+  batch_id      uuid        not null,           -- one import = one batch (so it can be undone as a whole)
+  source_file   text,
+  city          text        not null check (city in ('bozeman', 'helena')),
+  day           date        not null,           -- the day the crew logged it (the invoice's Date column)
+  address       text,                           -- the intersection / address as written on the invoice
+  gtype         text        not null default 'other'
+                check (gtype in ('slap', 'chalk', 'sharpie', 'spray', 'flyer', 'other', 'ssr', 'powerwash')),
+  gtype_other   text,
+  surface       text,
+  chemical      text,
+  notes         text,
+  duration_min  integer     check (duration_min is null or duration_min between 0 and 1440),
+  lat           double precision check (lat between -90 and 90),
+  lng           double precision check (lng between -180 and 180),
+  geo           text        not null default 'none' check (geo in ('none', 'found')),  -- 'found' = looked up from the intersection (approximate)
+  dedupe_key    text        not null unique,
+  created_by    text        not null,           -- Clerk user id
+  created_at    timestamptz not null default now(),
+  check ((lat is null) = (lng is null))
+);
+create index if not exists graffiti_history_day_idx   on public.graffiti_history (day);
+create index if not exists graffiti_history_batch_idx on public.graffiti_history (batch_id);
+alter table public.graffiti_history enable row level security;
