@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SignOutButton, UserButton, useUser } from "@clerk/nextjs";
 import WeatherEffects, { WeatherInfo } from "./WeatherEffects";
 import FoodTab, { FoodContent } from "./FoodTab";
@@ -24,6 +24,21 @@ const seasonLabels: Record<string, string> = {
 
 const baseTabs = ["Home", "Projects", "Graffiti", "Work orders", "Lawn care", "Other jobs", "Snow removal", "Food", "Poker", "About", "Contact"] as const;
 type Tab = (typeof baseTabs)[number] | "Admin";
+
+// Nav groups. The top bar shows Home · Work · Personal · Admin; a group with
+// more than one visible tab gets a second row of sub-tabs. Addresses stay
+// per-tab (?tab=graffiti, ?tab=lawn care…), so every existing link still works.
+type GroupId = "work" | "personal";
+type TabGroup = { id: GroupId; label: "Work" | "Personal"; tabs: readonly Tab[] };
+const tabGroups: readonly TabGroup[] = [
+  { id: "work", label: "Work", tabs: ["Graffiti", "Work orders", "Lawn care", "Other jobs", "Snow removal"] },
+  { id: "personal", label: "Personal", tabs: ["Projects", "Food", "Poker", "About", "Contact"] },
+];
+const groupOf = (tab: Tab) => tabGroups.find((g) => g.tabs.includes(tab)) ?? null;
+// Top-bar order: plain tabs and groups.
+const navOrder: readonly (Tab | GroupId)[] = ["Home", "work", "personal", "Admin"];
+type NavItem = { kind: "tab"; tab: Tab } | { kind: "group"; group: TabGroup; visible: Tab[] };
+const LAST_IN_GROUP_KEY = "navLastInGroup";
 
 const mono = "'IBM Plex Mono', monospace";
 const sans = "'IBM Plex Sans', sans-serif";
@@ -616,7 +631,7 @@ function AdminTab({
 
 // ---------- Nav icons (inline so there's nothing extra to load) ----------
 
-function Icon({ name }: { name: Tab }) {
+function Icon({ name }: { name: Tab | "Work" | "Personal" }) {
   const common = {
     viewBox: "0 0 24 24",
     fill: "none",
@@ -720,6 +735,20 @@ function Icon({ name }: { name: Tab }) {
           <path d="m9 12 2 2 4-4" />
         </svg>
       );
+    case "Work":
+      return (
+        <svg {...common}>
+          <rect x="3" y="7" width="18" height="13" rx="2" />
+          <path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7" />
+          <path d="M3 12.5h18" />
+        </svg>
+      );
+    case "Personal":
+      return (
+        <svg {...common}>
+          <path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10Z" />
+        </svg>
+      );
   }
 }
 
@@ -818,6 +847,55 @@ export default function HomePage() {
     setOpenProject(tab === "Projects" ? project : null);
     writeUrl({ tab, project }, mode);
   }
+
+  // Each group remembers the last section you were in, so tapping "Work"
+  // puts you back on (say) Snow removal instead of always on Graffiti.
+  const [lastInGroup, setLastInGroup] = useState<Partial<Record<GroupId, Tab>>>({});
+  useEffect(() => {
+    try {
+      const raw = JSON.parse(window.localStorage.getItem(LAST_IN_GROUP_KEY) ?? "{}") as Record<string, unknown>;
+      const clean: Partial<Record<GroupId, Tab>> = {};
+      for (const g of tabGroups) {
+        const t = raw[g.id];
+        if (typeof t === "string" && (g.tabs as readonly string[]).includes(t)) clean[g.id] = t as Tab;
+      }
+      setLastInGroup(clean);
+    } catch {
+      /* storage blocked or bad JSON: start fresh */
+    }
+  }, []);
+  useEffect(() => {
+    const g = groupOf(active);
+    if (!g) return;
+    setLastInGroup((prev) => {
+      if (prev[g.id] === active) return prev;
+      const next = { ...prev, [g.id]: active };
+      try {
+        window.localStorage.setItem(LAST_IN_GROUP_KEY, JSON.stringify(next));
+      } catch {
+        /* private mode: remember for this visit only */
+      }
+      return next;
+    });
+  }, [active]);
+
+  // On a phone the sub-row scrolls sideways: keep the open section in view
+  // (e.g. a link straight to Snow removal, the last pill in the row). Jump
+  // there instantly when the row first appears; glide when you tap within it.
+  const subRowPlaced = useRef(false);
+  useEffect(() => {
+    const pill = document.querySelector<HTMLElement>("nav.subtabs .subtab.active");
+    const row = pill?.parentElement;
+    if (!pill || !row) {
+      subRowPlaced.current = false; // left the group: next time the row appears, place it instantly
+      return;
+    }
+    if (row.scrollWidth > row.clientWidth) {
+      const left = pill.offsetLeft - (row.clientWidth - pill.offsetWidth) / 2;
+      row.scrollTo({ left, behavior: subRowPlaced.current ? "smooth" : "auto" });
+    }
+    subRowPlaced.current = true;
+  }, [active]);
   const [season, setSeason] = useState<string>("");
   const [weather, setWeather] = useState<WeatherInfo | null>(null);
   const [content, setContent] = useState<TabContentData | null>(null);
@@ -863,6 +941,27 @@ export default function HomePage() {
     ? [...baseTabs]
     : editableTabKeys.filter((key) => canEdit(key)).map((key) => tabLabelForKey[key]);
   const tabs: Tab[] = isOwner ? [...visibleBaseTabs, "Admin"] : visibleBaseTabs;
+
+  // What the top bar shows. A group only appears if this account can see at
+  // least one of its tabs; a group with just one visible tab shows that tab
+  // directly (no point in a sub-row of one).
+  const navItems: NavItem[] = [];
+  const placed = new Set<Tab>();
+  for (const entry of navOrder) {
+    const group = tabGroups.find((g) => g.id === entry);
+    if (group) {
+      const visible = group.tabs.filter((t) => tabs.includes(t));
+      visible.forEach((t) => placed.add(t));
+      if (visible.length === 1) navItems.push({ kind: "tab", tab: visible[0] });
+      else if (visible.length > 1) navItems.push({ kind: "group", group, visible });
+    } else if (tabs.includes(entry as Tab)) {
+      navItems.push({ kind: "tab", tab: entry as Tab });
+      placed.add(entry as Tab);
+    }
+  }
+  // Safety net: a future tab not yet placed in a group still shows up.
+  for (const t of tabs) if (!placed.has(t)) navItems.push({ kind: "tab", tab: t });
+  const activeGroup = navItems.find((i): i is Extract<NavItem, { kind: "group" }> => i.kind === "group" && i.visible.includes(active)) ?? null;
 
   // Crew accounts never see the hub. Someone who has the graffiti (or snow removal) tab but none of the real
   // hub tabs (home/projects/food; About and Contact are just the new-account defaults) goes
@@ -1067,20 +1166,44 @@ export default function HomePage() {
         </header>
 
         <nav className="tabs" aria-label="Sections">
-          {tabs.map((tab) => (
-            <button
-              key={tab}
-              className={tab === active ? "tab active" : "tab"}
-              aria-current={tab === active ? "page" : undefined}
-              onClick={() => {
-                navigate(tab);
-                window.scrollTo({ top: 0, behavior: "smooth" });
-              }}
-            >
-              <Icon name={tab} />
-              <span>{tab}</span>
-            </button>
-          ))}
+          {navItems.map((item) => {
+            if (item.kind === "tab") {
+              const tab = item.tab;
+              return (
+                <button
+                  key={tab}
+                  className={tab === active ? "tab active" : "tab"}
+                  aria-current={tab === active ? "page" : undefined}
+                  onClick={() => {
+                    navigate(tab);
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                >
+                  <Icon name={tab} />
+                  <span>{tab}</span>
+                </button>
+              );
+            }
+            const { group, visible } = item;
+            const isActive = visible.includes(active);
+            const remembered = lastInGroup[group.id];
+            const target = remembered && visible.includes(remembered) ? remembered : visible[0];
+            return (
+              <button
+                key={group.id}
+                className={isActive ? "tab active" : "tab"}
+                aria-current={isActive ? "page" : undefined}
+                data-group={group.id}
+                onClick={() => {
+                  if (!isActive) navigate(target);
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                }}
+              >
+                <Icon name={group.label} />
+                <span>{group.label}</span>
+              </button>
+            );
+          })}
           {/* The room dashboard is its own full-screen page, not a tab. */}
           <a href="/dashboard" className="tab" style={{ textDecoration: "none" }}>
             <svg
@@ -1098,6 +1221,22 @@ export default function HomePage() {
             <span>Dashboard</span>
           </a>
         </nav>
+
+        {activeGroup && (
+          <nav className="subtabs" aria-label={`${activeGroup.group.label} sections`}>
+            {activeGroup.visible.map((tab) => (
+              <button
+                key={tab}
+                className={tab === active ? "subtab active" : "subtab"}
+                aria-current={tab === active ? "page" : undefined}
+                onClick={() => navigate(tab)}
+              >
+                <Icon name={tab} />
+                <span>{tab}</span>
+              </button>
+            ))}
+          </nav>
+        )}
 
         <div className="tab-content" key={active}>
           {usesContent && !content && !loadError && (
