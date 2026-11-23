@@ -46,7 +46,6 @@ const shortDay = (ymd: string) => fmtPlainDate(ymd).replace(/, \d{4}$/, "");
 
 function Bars({ items, color, max = 8, testid }: { items: Bucket[]; color: (k: string) => string; max?: number; testid: string }) {
   const shown = items.slice(0, max);
-  const top = Math.max(1, ...shown.map((b) => b.n));
   if (shown.length === 0) return <p className={t.empty}>Nothing to show.</p>;
   return (
     <ul className={t.hb} data-testid={testid}>
@@ -56,7 +55,7 @@ function Bars({ items, color, max = 8, testid }: { items: Bucket[]; color: (k: s
             {b.label}
           </span>
           <span className={t.track}>
-            <span className={t.fill} style={{ width: `${(b.n / top) * 100}%`, background: color(b.key) }} />
+            <span className={t.fill} style={{ width: `${Math.min(100, b.pct)}%`, background: color(b.key) }} />
           </span>
           <span className={t.val}>
             <b>{b.n}</b> · {b.pct}%
@@ -386,7 +385,7 @@ export default function TrendsPage() {
                         {tr.byCity.length > 1 ? ` · ${CITY_NAMES[s.city]}` : ""}
                       </span>
                       <span className={t.track}>
-                        <span className={t.fill} style={{ width: `${(s.n / tr.streets[0].n) * 100}%`, background: "#c0392b" }} />
+                        <span className={t.fill} style={{ width: `${Math.min(100, s.pct)}%`, background: "#c0392b" }} />
                       </span>
                       <span className={t.val}>
                         <b>{s.n}</b> · {s.pct}%
