@@ -224,6 +224,11 @@ export default function GraffitiTab({ isOwner, canInvoice = isOwner }: { isOwner
           </a>
         )}
         {(isOwner || canInvoice) && (
+          <a className={styles.headLink} href="/graffiti/trends" data-testid="trends-link">
+            Trends →
+          </a>
+        )}
+        {(isOwner || canInvoice) && (
           <a className={styles.headLink} href="/graffiti/invoice">
             Invoice →
           </a>

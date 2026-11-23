@@ -1,0 +1,271 @@
+/* Trends & analysis: charts are plain CSS / inline SVG (no chart library). Shares the light page look of the invoice. */
+
+.wrap {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 12px;
+}
+
+.h1 {
+  margin: 0 0 4px;
+  font-size: 20px;
+}
+
+.lead {
+  margin: 0 0 12px;
+  color: var(--mute);
+  font-size: 13.5px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  background: #fff;
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.chip[aria-pressed="true"] {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+}
+
+.filters {
+  display: grid;
+  gap: 10px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.fl2 {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mute);
+  margin-bottom: 3px;
+}
+
+/* what stands out */
+.insights {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.insights li {
+  padding: 8px 10px;
+  border-left: 4px solid #9aa3af;
+  background: #f6f8fa;
+  border-radius: 0 8px 8px 0;
+  font-size: 14px;
+}
+
+.insights li[data-level="warn"] {
+  border-left-color: #d98a00;
+  background: #fff8e8;
+}
+
+.insights li[data-level="info"] {
+  border-left-color: var(--brand);
+}
+
+.insights li[data-level="note"] {
+  border-left-color: #7a828e;
+}
+
+/* headline numbers */
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.kpi {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 14px;
+}
+
+.kpi b {
+  display: block;
+  font-size: 28px;
+  line-height: 1.1;
+}
+
+.kpi span {
+  display: block;
+  font-size: 12.5px;
+  color: var(--mute);
+}
+
+.kpi i {
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.up { color: #b3261e; }
+.down { color: #1e8e3e; }
+
+.grid2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+  gap: 10px;
+}
+
+.h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.note {
+  color: var(--mute);
+  font-size: 12.5px;
+  margin: 6px 0 0;
+}
+
+/* time chart */
+.chart {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.chart text {
+  font: 11px system-ui, sans-serif;
+  fill: #5f6773;
+}
+
+.bar {
+  fill: #1f6feb;
+}
+
+.bar:hover {
+  fill: #0b4fc2;
+}
+
+/* horizontal bars */
+.hb {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hb li {
+  display: grid;
+  grid-template-columns: minmax(120px, 44%) 1fr auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 13.5px;
+}
+
+.hb .lab {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.track {
+  height: 14px;
+  background: #eef1f5;
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.fill {
+  height: 100%;
+  border-radius: 7px;
+  min-width: 3px;
+}
+
+.val {
+  font-variant-numeric: tabular-nums;
+  font-size: 12.5px;
+  color: var(--mute);
+  white-space: nowrap;
+}
+
+.val b {
+  color: var(--ink);
+}
+
+/* lists */
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  font-size: 13.5px;
+}
+
+.list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 0;
+  border-bottom: 1px solid #eef1f5;
+}
+
+.list .sub2 {
+  color: var(--mute);
+  font-size: 12.5px;
+  text-align: right;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 12.5px;
+  color: var(--mute);
+  margin-top: 8px;
+}
+
+.dot {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: -1px;
+}
+
+.map {
+  height: 460px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+
+.empty {
+  color: var(--mute);
+  padding: 18px 0;
+  text-align: center;
+}
+
+.details summary {
+  cursor: pointer;
+  font-weight: 600;
+}

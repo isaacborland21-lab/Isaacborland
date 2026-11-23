@@ -61,6 +61,15 @@ from the main site; an account that has a job tab is not sent there.
 - **One more SQL step for invoices:** re-run `supabase/jobs.sql` (it only adds the `job_invoices` table).
 - Existing installs: nothing to re-run for graffiti; just add `supabase/jobs.sql`.
 
+## Trends (graffiti)
+
+**Graffiti → Trends →** (owner, or a Manager: graffiti tab + invoice switch). How many tags the crews are finding, where, and
+what kind, for any time period, city or tag type: plain-English "what stands out" findings, tags per day/week/month, top
+streets and busiest ~300 m blocks, a map (every tag, or hot blocks), tag types and surfaces, spots that were cleaned and
+tagged again, tags still open, and who handled them. The math is `lib/graffitiTrends.ts` (pure, no database); the data
+comes from `GET /api/graffiti/trends`. Counts are when a crew **found and logged** a tag, not when the graffiti went up,
+and every finding has a minimum sample size so a few tags can't fake a pattern. No database change.
+
 ## Patrolling and coverage (graffiti)
 
 > **Paused for now.** The "Start patrolling" bar, the drive routes on the crew map and the Coverage link are hidden, and
