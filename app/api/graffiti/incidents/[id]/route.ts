@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { computeUpdate, CurrentIncident } from "@/lib/graffiti";
+import { canDeleteTag, computeUpdate, CurrentIncident } from "@/lib/graffiti";
 import {
   checkPhoto,
   fail,
@@ -33,7 +33,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
   const { fields, photo } = input;
 
   const db = getSupabaseAdmin();
-  const { data: row, error: readErr } = await db.from("graffiti_incidents").select(INCIDENT_COLS).eq("id", id).maybeSingle();
+  const { data: row, error: readErr } = await db.from("graffiti_incidents").select(INCIDENT_COLS).eq("id", id).is("deleted_at", null).maybeSingle();
   if (readErr) return fail(readErr.message, 500);
   if (!row) return fail("Incident not found.", 404);
   const current = row as unknown as CurrentIncident & {
@@ -93,7 +93,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
     update[kind === "before" ? "before_photo" : kind === "after" ? "after_photo" : "report_photo"] = newName;
   }
 
-  const { data, error } = await db.from("graffiti_incidents").update(update).eq("id", id).select(INCIDENT_COLS).single();
+  const { data, error } = await db.from("graffiti_incidents").update(update).eq("id", id).is("deleted_at", null).select(INCIDENT_COLS).single();
   if (error || !data) {
     await removePhotos(db, [newName]);
     return fail(error?.message ?? "Could not save the change.", 500);
@@ -108,7 +108,9 @@ export async function PATCH(request: Request, { params }: Ctx) {
   return NextResponse.json({ incident: toIncident(data as unknown as Record<string, unknown>, who.userId, photos.get(id) ?? []) });
 }
 
-// Only whoever logged the incident, or the owner, may delete it — and never one that is on a sent invoice.
+// Deleting only hides the tag (deleted_at), so it can be brought back; its photos are kept.
+// A finished tag is billable work: only the owner, a Manager or whoever logged it may delete it (see canDeleteTag).
+// One on a sent invoice can never be deleted.
 export async function DELETE(_request: Request, { params }: Ctx) {
   const who = await requireGraffiti();
   if (isResponse(who)) return who;
@@ -118,23 +120,30 @@ export async function DELETE(_request: Request, { params }: Ctx) {
   const db = getSupabaseAdmin();
   const { data: row, error: readErr } = await db
     .from("graffiti_incidents")
-    .select("id, before_photo, after_photo, report_photo")
+    .select("id, status, removed_at, created_by")
     .eq("id", id)
+    .is("deleted_at", null)
     .maybeSingle();
   if (readErr) return fail(readErr.message, 500);
   if (!row) return fail("Incident not found.", 404);
-  const r = row as unknown as { before_photo: string | null; after_photo: string | null; report_photo: string | null };
+  const r = row as unknown as { status: string; removed_at: string | null; created_by: string | null };
 
-  // anyone with the graffiti tracker may delete a tag (not only who logged it); one on a sent invoice is still protected below
+  if (!canDeleteTag(r, { owner: who.owner, manager: who.manager, mine: r.created_by === who.userId })) {
+    return fail("This tag is finished work. Only a manager, or whoever logged it, can delete it.", 403);
+  }
 
   const invoices = await loadInvoices(db);
   const sent = invoices.find((i) => i.job_ids.includes(id));
   if (sent) return fail(`This tag is on invoice ${sent.invoice_no} (${sent.month}), which was marked as sent. Undo that invoice first.`, 409);
 
-  // the extra photos' rows go with the tag (cascade); their files are removed below
-  const { data: extra } = await db.from("graffiti_photos").select("name").eq("incident_id", id);
-  const { error } = await db.from("graffiti_incidents").delete().eq("id", id);
+  const { data, error } = await db
+    .from("graffiti_incidents")
+    .update({ deleted_at: new Date().toISOString(), deleted_by: who.userId, deleted_by_name: who.name, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .is("deleted_at", null)
+    .select("id")
+    .maybeSingle();
   if (error) return fail(error.message, 500);
-  await removePhotos(db, [r.before_photo, r.after_photo, r.report_photo, ...((extra ?? []) as { name: string }[]).map((p) => p.name)]);
+  if (!data) return fail("Incident not found.", 404);
   return NextResponse.json({ ok: true });
 }

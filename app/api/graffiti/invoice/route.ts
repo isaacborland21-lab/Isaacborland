@@ -209,7 +209,7 @@ export async function POST(request: Request) {
       const invoices = await loadInvoices(db);
       const sent = invoices.find((i) => i.job_ids.includes(id));
       if (sent) return fail(`That tag is already on invoice ${sent.invoice_no}. Undo it first to move the tag.`, 409);
-      const { data, error } = await db.from("graffiti_incidents").update({ city: c }).eq("id", id).select("id").maybeSingle();
+      const { data, error } = await db.from("graffiti_incidents").update({ city: c }).eq("id", id).is("deleted_at", null).select("id").maybeSingle();
       if (error) return fail(error.message, 500);
       if (!data) return fail("Incident not found.", 404);
       return NextResponse.json({ ok: true });

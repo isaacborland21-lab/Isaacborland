@@ -67,7 +67,7 @@ export async function POST(request: Request) {
         }>,
       ),
       fetchAll<DayRow>((a, b) =>
-        db.from("graffiti_incidents").select("reported_at, city, lat, lng").order("id").range(a, b) as unknown as PromiseLike<{
+        db.from("graffiti_incidents").select("reported_at, city, lat, lng").is("deleted_at", null).order("id").range(a, b) as unknown as PromiseLike<{
           data: DayRow[] | null;
           error: { message: string } | null;
         }>,

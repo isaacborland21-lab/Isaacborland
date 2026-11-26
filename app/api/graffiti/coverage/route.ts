@@ -36,6 +36,7 @@ export async function GET(request: Request) {
         db
           .from("graffiti_incidents")
           .select("lat, lng, city, address, reported_at, removed_at, reported_by_name, removed_by_name")
+          .is("deleted_at", null)
           .order("id", { ascending: true })
           .range(a, b) as unknown as PromiseLike<{ data: Tag[] | null; error: { message: string } | null }>,
       ),

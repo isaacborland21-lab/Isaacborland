@@ -1,7 +1,6 @@
-import { auth, clerkClient } from "@clerk/nextjs/server";
+import { currentUser } from "@/lib/currentUser";
 import { NextResponse } from "next/server";
-import { PublicMetadata } from "@/lib/supabaseAdmin";
-import { Db, displayName, fail } from "@/lib/graffitiServer";
+import { Db, fail } from "@/lib/graffitiServer";
 import { MAX_ROUTE_BYTES, ROUTES_FILE, SNOW_BUCKET, SnowRoute, canUseSnow, parseRoutes } from "@/lib/snow";
 
 // Server-only helpers for the Snow removal API routes. Never import from a client component.
@@ -12,16 +11,13 @@ export type SnowWho = { userId: string; owner: boolean; name: string };
 
 /** Signed in AND allowed on the Snow removal tab. With `ownerOnly`, only the site owner passes (adding / changing routes). */
 export async function requireSnow(ownerOnly = false): Promise<SnowWho | NextResponse> {
-  const { userId } = auth();
-  if (!userId) return fail("Not signed in.", 401);
-  const client = await clerkClient();
-  const user = await client.users.getUser(userId);
-  const meta = user.publicMetadata as PublicMetadata;
-  const owner = meta.owner === true;
-  if (ownerOnly ? !owner : !canUseSnow(meta)) {
+  const me = await currentUser();
+  if (!me) return fail("Not signed in.", 401);
+  const owner = me.meta.owner === true;
+  if (ownerOnly ? !owner : !canUseSnow(me.meta)) {
     return fail(ownerOnly ? "Only Isaac can change the snow routes." : "Not permitted to see the snow routes.", 403);
   }
-  return { userId, owner, name: displayName(user) };
+  return { userId: me.userId, owner, name: me.name };
 }
 
 /** Makes the private "snow" bucket if it isn't there yet (PDFs plus the routes list, nothing else). */

@@ -41,7 +41,7 @@ export async function GET(request: Request) {
     const [settings, raw, history] = await Promise.all([
       loadSettings(db),
       fetchAll<Raw>((a, b) =>
-        db.from("graffiti_incidents").select(COLS).order("id", { ascending: true }).range(a, b) as unknown as PromiseLike<{
+        db.from("graffiti_incidents").select(COLS).is("deleted_at", null).order("id", { ascending: true }).range(a, b) as unknown as PromiseLike<{
           data: Raw[] | null;
           error: { message: string } | null;
         }>,

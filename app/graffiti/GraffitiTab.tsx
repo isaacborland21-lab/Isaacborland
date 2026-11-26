@@ -5,6 +5,7 @@ import type { ChangeEvent, FormEvent, MouseEvent } from "react";
 import styles from "./graffiti.module.css";
 import {
   CHEMICAL_OPTIONS,
+  canDeleteTag,
   CHEM_BILLBACKS,
   CHEM_BILLBACK_NAMES,
   ChemBillback,
@@ -376,6 +377,7 @@ export default function GraffitiTab({ isOwner, canInvoice = isOwner }: { isOwner
           onSaved={upsert}
           onPhotos={setPhotos}
           onDeleted={(id) => setIncidents((prev) => prev.filter((x) => x.id !== id))}
+          manager={isOwner || canInvoice}
         />
       )}
 
@@ -1821,6 +1823,7 @@ function IncidentSheet({
   onSaved,
   onPhotos,
   onDeleted,
+  manager,
 }: {
   inc: Incident;
   toast: Toast;
@@ -1828,6 +1831,8 @@ function IncidentSheet({
   onSaved: (inc: Incident) => void;
   onPhotos: (id: number, photos: IncidentPhoto[]) => void;
   onDeleted: (id: number) => void;
+  /** The owner or a Manager: may delete finished tags (the server checks this again). */
+  manager: boolean;
 }) {
   const [addr, setAddr] = useState(inc.address ?? "");
   const [notes, setNotes] = useState(inc.notes ?? "");
@@ -1894,7 +1899,7 @@ function IncidentSheet({
   }
 
   async function remove() {
-    if (!window.confirm("Delete this incident and its photos? This cannot be undone.")) return;
+    if (!window.confirm("Delete this tag? It disappears from the tracker, the map and the invoice. Isaac can bring it back if it was a mistake.")) return;
     setBusy(true);
     try {
       await apiJson<{ ok: true }>(`/api/graffiti/incidents/${inc.id}`, { method: "DELETE" });
@@ -2152,9 +2157,13 @@ function IncidentSheet({
             Navigate here
           </a>
         </p>
-        <button type="button" className={`${styles.btn} ${styles.danger} ${styles.block}`} disabled={busy} onClick={remove}>
-          Delete incident
-        </button>
+        {canDeleteTag(inc, { owner: false, manager, mine: inc.mine === true }) ? (
+          <button type="button" className={`${styles.btn} ${styles.danger} ${styles.block}`} disabled={busy} onClick={remove}>
+            Delete incident
+          </button>
+        ) : (
+          <p className={styles.hint}>This tag is finished work, so only a manager or whoever logged it can delete it.</p>
+        )}
       </div>
     </div>
   );
