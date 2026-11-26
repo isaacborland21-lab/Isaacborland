@@ -31,6 +31,7 @@ export async function GET() {
   const { data, error } = await db
     .from("graffiti_incidents")
     .select(INCIDENT_COLS)
+    .is("deleted_at", null)
     .order("reported_at", { ascending: false })
     .order("id", { ascending: false })
     .limit(LIST_LIMIT + 1);

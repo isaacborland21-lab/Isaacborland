@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { auth, clerkClient } from "@clerk/nextjs/server";
+import { clerkClient } from "@clerk/nextjs/server";
+import { currentUser, nameOf } from "@/lib/currentUser";
 import { randomBytes } from "crypto";
-import { canEditTab, canInvoice, getSupabaseAdmin, PublicMetadata } from "@/lib/supabaseAdmin";
+import { canEditTab, canInvoice, getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import {
   BillingSettings,
   Fields,
@@ -34,27 +35,24 @@ type NamedUser = { firstName: string | null; lastName: string | null; username: 
 
 /** The name shown for a crew account: first + last name, else username, else "Crew". */
 export function displayName(user: NamedUser): string {
-  const name = [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.username || "Crew";
-  return name.slice(0, 80);
+  return nameOf(user);
 }
 
-export type Who = { userId: string; owner: boolean; name: string };
+/** `manager`: the owner, or a crew account with the graffiti tab AND the invoice switch (the "Manager" role). */
+export type Who = { userId: string; owner: boolean; manager: boolean; name: string };
 
 /**
  * Signed in AND allowed on the graffiti tab (owner, or granted "graffiti" in the Admin tab).
  * With `ownerOnly`, only the site owner passes — used for rates and invoices, which crew must not see.
  */
 export async function requireGraffiti(ownerOnly = false): Promise<Who | NextResponse> {
-  const { userId } = auth();
-  if (!userId) return fail("Not signed in.", 401);
-  const client = await clerkClient();
-  const user = await client.users.getUser(userId);
-  const meta = user.publicMetadata as PublicMetadata;
-  const owner = meta.owner === true;
-  if (ownerOnly ? !owner : !canEditTab(meta, "graffiti")) {
+  const me = await currentUser();
+  if (!me) return fail("Not signed in.", 401);
+  const owner = me.meta.owner === true;
+  if (ownerOnly ? !owner : !canEditTab(me.meta, "graffiti")) {
     return fail(ownerOnly ? "Owner only." : "Not permitted to use the graffiti tracker.", 403);
   }
-  return { userId, owner, name: displayName(user) };
+  return { userId: me.userId, owner, manager: canInvoice(me.meta), name: me.name };
 }
 
 /**
@@ -62,13 +60,10 @@ export async function requireGraffiti(ownerOnly = false): Promise<Who | NextResp
  * Billing settings, the template upload and un-marking an invoice stay owner-only: check `who.owner` for those.
  */
 export async function requireInvoice(): Promise<Who | NextResponse> {
-  const { userId } = auth();
-  if (!userId) return fail("Not signed in.", 401);
-  const client = await clerkClient();
-  const user = await client.users.getUser(userId);
-  const meta = user.publicMetadata as PublicMetadata;
-  if (!canInvoice(meta)) return fail("Not permitted to use the invoice.", 403);
-  return { userId, owner: meta.owner === true, name: displayName(user) };
+  const me = await currentUser();
+  if (!me) return fail("Not signed in.", 401);
+  if (!canInvoice(me.meta)) return fail("Not permitted to use the invoice.", 403);
+  return { userId: me.userId, owner: me.meta.owner === true, manager: true, name: me.name };
 }
 
 /** Narrows a "result or an error response" value: true means send it straight back to the caller. */
@@ -220,6 +215,7 @@ export async function loadFinished(db: Db): Promise<InvoiceRow[]> {
     db
       .from("graffiti_incidents")
       .select(INVOICE_ROW_COLS)
+      .is("deleted_at", null)
       .not("removed_at", "is", null)
       .order("removed_at", { ascending: true })
       .order("id", { ascending: true })

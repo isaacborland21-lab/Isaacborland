@@ -21,7 +21,7 @@ export async function POST(request: Request, { params }: Ctx) {
   if (!input.photo) return fail("Choose a photo to add.", 400);
 
   const db = getSupabaseAdmin();
-  const { data: row, error: readErr } = await db.from("graffiti_incidents").select("id").eq("id", id).maybeSingle();
+  const { data: row, error: readErr } = await db.from("graffiti_incidents").select("id").eq("id", id).is("deleted_at", null).maybeSingle();
   if (readErr) return fail(readErr.message, 500);
   if (!row) return fail("Incident not found.", 404);
 

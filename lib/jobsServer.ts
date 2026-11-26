@@ -1,8 +1,8 @@
-import { auth, clerkClient } from "@clerk/nextjs/server";
+import { currentUser } from "@/lib/currentUser";
 import { NextResponse } from "next/server";
-import { canInvoice, PublicMetadata } from "@/lib/supabaseAdmin";
+import { canInvoice } from "@/lib/supabaseAdmin";
 import { canUseJobType, Job, JOB_TYPES, JobType, Material } from "@/lib/jobs";
-import { Db, displayName, fail, fetchAll, isResponse, loadSettings } from "@/lib/graffitiServer";
+import { Db, fail, fetchAll, isResponse, loadSettings } from "@/lib/graffitiServer";
 import { BillingSettings, InvoiceSnapshot, isCity } from "@/lib/graffiti";
 import { JobInvoiceRow, JobSettings, mergeJobSettings } from "@/lib/jobInvoice";
 
@@ -16,24 +16,18 @@ export type JobWho = { userId: string; owner: boolean; name: string; /** may see
 
 /** Signed in AND allowed on this job type (the owner, or granted that tab in the Admin tab). The graffiti switch does not count. */
 export async function requireJobs(type: JobType): Promise<JobWho | NextResponse> {
-  const { userId } = auth();
-  if (!userId) return fail("Not signed in.", 401);
-  const client = await clerkClient();
-  const user = await client.users.getUser(userId);
-  const meta = user.publicMetadata as PublicMetadata;
-  if (!canUseJobType(meta, type)) return fail("Not permitted to use this tab.", 403);
-  return { userId, owner: meta.owner === true, name: displayName(user), canBill: canInvoice(meta, type) };
+  const me = await currentUser();
+  if (!me) return fail("Not signed in.", 401);
+  if (!canUseJobType(me.meta, type)) return fail("Not permitted to use this tab.", 403);
+  return { userId: me.userId, owner: me.meta.owner === true, name: me.name, canBill: canInvoice(me.meta, type) };
 }
 
 /** Signed in AND allowed on at least one of the job tabs (used for job photos, which are shared by the three tabs). */
 export async function requireAnyJobTab(): Promise<JobWho | NextResponse> {
-  const { userId } = auth();
-  if (!userId) return fail("Not signed in.", 401);
-  const client = await clerkClient();
-  const user = await client.users.getUser(userId);
-  const meta = user.publicMetadata as PublicMetadata;
-  if (!JOB_TYPES.some((t) => canUseJobType(meta, t))) return fail("Not permitted.", 403);
-  return { userId, owner: meta.owner === true, name: displayName(user), canBill: false };
+  const me = await currentUser();
+  if (!me) return fail("Not signed in.", 401);
+  if (!JOB_TYPES.some((t) => canUseJobType(me.meta, t))) return fail("Not permitted.", 403);
+  return { userId: me.userId, owner: me.meta.owner === true, name: me.name, canBill: false };
 }
 
 function cleanMaterials(v: unknown): Material[] {

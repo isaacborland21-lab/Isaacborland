@@ -180,3 +180,10 @@ create table if not exists public.graffiti_history (
 create index if not exists graffiti_history_day_idx   on public.graffiti_history (day);
 create index if not exists graffiti_history_batch_idx on public.graffiti_history (batch_id);
 alter table public.graffiti_history enable row level security;
+
+-- Deleting a tag only hides it (deleted_at is set), so a mistaken or unwanted delete can be undone.
+-- Its photos are kept. Every query in the app skips rows where deleted_at is set.
+-- To bring a tag back:  update public.graffiti_incidents set deleted_at = null, deleted_by = null, deleted_by_name = null where id = <tag number>;
+alter table public.graffiti_incidents add column if not exists deleted_at timestamptz;
+alter table public.graffiti_incidents add column if not exists deleted_by text;          -- Clerk user id
+alter table public.graffiti_incidents add column if not exists deleted_by_name text;

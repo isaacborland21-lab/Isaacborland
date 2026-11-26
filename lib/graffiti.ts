@@ -136,6 +136,19 @@ export type Incident = {
   photos?: IncidentPhoto[];
 };
 
+/**
+ * Who may delete a tag. A finished tag is billable work, so only the owner, a Manager (graffiti tab + invoice switch)
+ * or whoever logged it may delete it. Anyone on the tracker may still delete one that isn't finished (a duplicate
+ * report, a mis-tap). Deleting only hides the tag (see the DELETE route), so it can be brought back.
+ */
+export function canDeleteTag(
+  tag: { status: string; removed_at: string | null },
+  viewer: { owner: boolean; manager: boolean; mine: boolean },
+): boolean {
+  const finished = tag.status === "removed" || tag.removed_at !== null;
+  return !finished || viewer.owner || viewer.manager || viewer.mine;
+}
+
 /** Form fields that were actually sent (a key is present even if its value is ""). */
 export type Fields = Record<string, string>;
 
